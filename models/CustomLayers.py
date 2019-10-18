@@ -225,3 +225,32 @@ class BlurLayer(nn.Module):
             groups=x.size(1)
         )
         return x
+
+
+class View(nn.Module):
+    def __init__(self, *shape):
+        super().__init__()
+        self.shape = shape
+
+    def forward(self, x):
+        return x.view(x.size(0), *self.shape)
+
+
+class StddevLayer(nn.Module):
+    def __init__(self, group_size=4, num_new_features=1):
+        super().__init__()
+        self.group_size = group_size
+        self.num_new_features = num_new_features
+
+    def forward(self, x):
+        b, c, h, w = x.shape
+        group_size = min(self.group_size, b)
+        y = x.reshape([group_size, -1, self.num_new_features,
+                       c // self.num_new_features, h, w])
+        y = y - y.mean(0, keepdim=True)
+        y = (y ** 2).mean(0, keepdim=True)
+        y = (y + 1e-8) ** 0.5
+        y = y.mean([3, 4, 5], keepdim=True).squeeze(3)  # don't keep the meaned-out channels
+        y = y.expand(group_size, -1, -1, h, w).clone().reshape(b, self.num_new_features, h, w)
+        z = torch.cat([x, y], dim=1)
+        return z

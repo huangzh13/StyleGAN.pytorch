@@ -12,8 +12,10 @@ from collections import OrderedDict
 
 import torch
 import torch.nn as nn
+from torch.nn.functional import interpolate
 
-from models.CustomLayers import PixelNormLayer, EqualizedLinear, LayerEpilogue, EqualizedConv2d
+from models.CustomLayers import PixelNormLayer, EqualizedLinear, LayerEpilogue, EqualizedConv2d, BlurLayer, View, \
+    StddevLayer
 
 
 class InputBlock(nn.Module):
@@ -168,68 +170,70 @@ class GSynthesis(nn.Module):
                  use_styles=True,  # Enable style inputs?
                  const_input_layer=True,  # First layer is a learned constant?
                  use_noise=True,  # Enable noise inputs?
-                 randomize_noise=True,
-                 # True = randomize noise inputs every time (non-deterministic), False = read noise inputs from variables.
                  nonlinearity='lrelu',  # Activation function: 'relu', 'lrelu'
                  use_wscale=True,  # Enable equalized learning rate?
                  use_pixel_norm=False,  # Enable pixelwise feature vector normalization?
                  use_instance_norm=True,  # Enable instance normalization?
-                 # dtype='float32',  # Data type to use for activations and outputs.
-                 fused_scale='auto',
-                 # True = fused convolution + scaling, False = separate ops, 'auto' = decide automatically.
-                 blur_filter=[1, 2, 1],  # Low-pass filter to apply when resampling activations. None = no filtering.
-                 structure='auto',
-                 # 'fixed' = no progressive growing, 'linear' = human-readable, 'recursive' = efficient, 'auto' = select automatically.
+                 blur_filter=None,  # Low-pass filter to apply when resampling activations. None = no filtering.
+                 structure='linear',
                  **kwargs):  # Ignore unrecognized keyword args.
 
         super().__init__()
 
-        self.structure = structure
-
         def nf(stage):
             return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
 
+        # 'fixed' = no progressive growing,
+        # 'linear' = human-readable
+        # ('recursive' = efficient, 'auto' = select automatically.)
+        assert structure in ['fixed', 'linear']
+        self.structure = structure
+
+        if blur_filter is None:
+            blur_filter = [1, 2, 1]
+
         resolution_log2 = int(np.log2(resolution))
         assert resolution == 2 ** resolution_log2 and resolution >= 4
+        self.num_layers = resolution_log2 * 2 - 2
+        self.num_styles = self.num_layers if use_styles else 1
 
         act, gain = {'relu': (torch.relu, np.sqrt(2)),
                      'lrelu': (nn.LeakyReLU(negative_slope=0.2), np.sqrt(2))}[nonlinearity]
 
-        num_layers = resolution_log2 * 2 - 2
-        num_styles = num_layers if use_styles else 1
-
-        # Primary inputs.
-
-        # Noise inputs.
-
-        # Things to do at the end of each layer.
-
         # Early layers.
+        init_blocks = [('4x4', InputBlock(nf(1), dlatent_size, const_input_layer, gain, use_wscale,
+                                          use_noise, use_pixel_norm, use_instance_norm, use_styles, act))]
+        self.init_layer = nn.Sequential(OrderedDict(init_blocks))
+        # create the ToRGB layers for various outputs
+        rgb_converters = [EqualizedConv2d(nf(1), num_channels, 1, gain=1, use_wscale=use_wscale)]
 
         # Building blocks for remaining layers.
         blocks = []
-        for res in range(2, resolution_log2 + 1):
+        for res in range(3, resolution_log2 + 1):
+            last_channels = nf(res - 2)
             channels = nf(res - 1)
             name = '{s}x{s}'.format(s=2 ** res)
-            if res == 2:
-                blocks.append((name,
-                               InputBlock(channels, dlatent_size, const_input_layer, gain, use_wscale,
-                                          use_noise, use_pixel_norm, use_instance_norm, use_styles, act)))
-            else:
-                blocks.append((name,
-                               GSynthesisBlock(last_channels, channels, blur_filter, dlatent_size, gain, use_wscale,
-                                               use_noise, use_pixel_norm, use_instance_norm, use_styles, act)))
-            last_channels = channels
+            blocks.append((name, GSynthesisBlock(last_channels, channels, blur_filter, dlatent_size, gain, use_wscale,
+                                                 use_noise, use_pixel_norm, use_instance_norm, use_styles, act)))
+            rgb_converters.append(EqualizedConv2d(channels, num_channels, 1, gain=1, use_wscale=use_wscale))
+        self.layers = nn.Sequential(OrderedDict(blocks))
+        self.to_rgb = nn.ModuleList(rgb_converters)
 
-    def forward(self, x):
+        # register the temporary upsampler
+        self.temporaryUpsampler = lambda x: interpolate(x, scale_factor=2)
+
+    def forward(self, x, depth, alpha):
+        """
+            forward pass of the Generator
+            :param x: input noise
+            :param depth: current depth from where output is required
+            :param alpha: value of alpha for fade-in effect
+            :return: y => output
+        """
         # Input: Disentangled latents (W) [mini_batch, num_layers, dlatent_size].
+        assert depth < self.num_layers, "Requested output depth cannot be produced"
 
-        # Fixed structure: simple and efficient, but does not support progressive growing.
-        # Linear structure: simple but inefficient.
-        # Recursive structure: complex but efficient.
-        if self.structure == 'fixed':
-            pass
-        elif self.structure == 'linear':
+        if depth > 0:
             pass
         else:
             pass
@@ -237,6 +241,54 @@ class GSynthesis(nn.Module):
         return x
 
 
+class DiscriminatorTop(nn.Sequential):
+    def __init__(self,
+                 mbstd_group_size,
+                 mbstd_num_features,
+                 in_channels,
+                 intermediate_channels,
+                 gain, use_wscale,
+                 activation_layer,
+                 resolution=4,
+                 in_channels2=None,
+                 output_features=1,
+                 last_gain=1):
+        """
+        :param mbstd_group_size:
+        :param mbstd_num_features:
+        :param in_channels:
+        :param intermediate_channels:
+        :param gain:
+        :param use_wscale:
+        :param activation_layer:
+        :param resolution:
+        :param in_channels2:
+        :param output_features:
+        :param last_gain:
+        """
+
+        layers = []
+        if mbstd_group_size > 1:
+            layers.append(('stddev_layer', StddevLayer(mbstd_group_size, mbstd_num_features)))
+
+        if in_channels2 is None:
+            in_channels2 = in_channels
+
+        layers.append(('conv', EqualizedConv2d(in_channels + mbstd_num_features, in_channels2, kernel_size=3,
+                                               gain=gain, use_wscale=use_wscale)))
+        layers.append(('act0', activation_layer))
+        layers.append(('view', View(-1)))
+        layers.append(('dense0', EqualizedLinear(in_channels2 * resolution * resolution, intermediate_channels,
+                                                 gain=gain, use_wscale=use_wscale)))
+        layers.append(('act1', activation_layer))
+        layers.append(('dense1', EqualizedLinear(intermediate_channels, output_features,
+                                                 gain=last_gain, use_wscale=use_wscale)))
+
+        super().__init__(OrderedDict(layers))
+
+
 if __name__ == '__main__':
     g_mapping = GMapping()
+    g_synthesis = GSynthesis()
+    # discriminator = DiscriminatorTop()
     print('Done.')

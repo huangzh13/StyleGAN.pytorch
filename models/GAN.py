@@ -11,48 +11,100 @@ import numpy as np
 
 import torch
 import torch.nn as nn
+from torch.nn import AvgPool2d
+
+from models.Blocks import GMapping, GSynthesis
 
 
 class Generator(nn.Module):
     def __init__(self,
-                 mapping_fmaps=512,
-                 style_mixing_prob=0.9,  # Probability of mixing styles during training. None = disable.
-                 truncation_psi=0.7,  # Style strength multiplier for the truncation trick. None = disable.
-                 truncation_cutoff=8,  # Number of layers for which to apply the truncation trick. None = disable.
-                 **kwargs
-                 ):
+                 truncation_psi=0.7,
+                 truncation_cutoff=8,
+                 truncation_psi_val=None,
+                 truncation_cutoff_val=None,
+                 dlatent_avg_beta=0.995,
+                 style_mixing_prob=0.9,
+                 **kwargs):
+        """
+        # Style-based generator used in the StyleGAN paper.
+        # Composed of two sub-networks (G_mapping and G_synthesis).
+        :param truncation_psi: Style strength multiplier for the truncation trick. None = disable.
+        :param truncation_cutoff: Number of layers for which to apply the truncation trick. None = disable.
+        :param truncation_psi_val: Value for truncation_psi to use during validation.
+        :param truncation_cutoff_val: Value for truncation_cutoff to use during validation.
+        :param dlatent_avg_beta: Decay for tracking the moving average of W during training. None = disable.
+        :param style_mixing_prob: Probability of mixing styles during training. None = disable.
+        :param kwargs: Arguments for sub-networks (G_mapping and G_synthesis).
+        """
+
         super(Generator, self).__init__()
 
-        self.mapping_fmaps = mapping_fmaps
-        self.style_mixing_prob = style_mixing_prob
-        self.truncation_cutoff = truncation_cutoff
-        self.truncation_psi = truncation_psi
+        # Setup components.
+        # TODO
 
-        self.g_mapping = G_mapping(self.mapping_fmaps, **kwargs)
-        self.g_synthesis = G_synthesis(self.mapping_fmaps, **kwargs)
+        self.g_mapping = GMapping(**kwargs)
+        self.g_synthesis = GSynthesis(**kwargs)
 
-    def forward(self, x):
-        dlatents_in = self.g_mapping(x)
-        fake_imgs = self.g_synthesis(dlatents_in)
+        # Update moving average of W.
+        # TODO
 
-        return fake_imgs
+    def forward(self, latents_in, labels_in=None):
+        """
+        :param latents_in: First input: Latent vectors (Z) [mini_batch, latent_size].
+        :param labels_in: Second input: Conditioning labels [mini_batch, label_size].
+        :return:
+        """
+
+        dlatents_in = self.g_mapping(latents_in)
+
+        # Perform style mixing regularization.
+        # TODO
+        # Apply truncation trick.
+        # TODO
+
+        fake_images = self.g_synthesis(dlatents_in)
+
+        return fake_images
 
 
 class Discriminator(nn.Module):
     def __init__(self,
-                 # images_in,     # First input: Images [minibatch, channel, height, width].
-                 # labels_in,     # Second input: Labels [minibatch, label_size].
-                 num_channels=3,  # Number of input color channels. Overridden based on dataset.
-                 resolution=1024,  # Input resolution. Overridden based on dataset.
-                 fmap_base=8192,  # Overall multiplier for the number of feature maps.
-                 fmap_decay=1.0,  # log2 feature map reduction when doubling the resolution.
-                 fmap_max=512,  # Maximum number of feature maps in any layer.
-                 nonlinearity='lrelu',  # Activation function: 'relu', 'lrelu',
-                 use_wscale=True,  # Enable equalized learning rate?
-                 mbstd_group_size=4,  # Group size for the minibatch standard deviation layer, 0 = disable.
-                 mbstd_num_features=1,  # Number of features for the minibatch standard deviation layer.
-                 # blur_filter = [1,2,1], # Low-pass filter to apply when resampling activations. None = no filtering.
-                 ):
+                 num_channels=1,
+                 resolution=32,
+                 # label_size=0,  # Dimensionality of the labels, 0 if no labels. Overridden based on dataset.
+                 fmap_base=8192,
+                 fmap_decay=1.0,
+                 fmap_max=512,
+                 nonlinearity='lrelu',
+                 use_wscale=True,
+                 mbstd_group_size=4,
+                 mbstd_num_features=1,
+                 blur_filter=None,
+                 structure='liner',
+                 **kwargs):
+        """
+        Discriminator used in the StyleGAN paper.
+        :param num_channels: Number of input color channels. Overridden based on dataset.
+        :param resolution: Input resolution. Overridden based on dataset.
+        :param fmap_base: Overall multiplier for the number of feature maps.
+        :param fmap_decay: log2 feature map reduction when doubling the resolution.
+        :param fmap_max: Maximum number of feature maps in any layer.
+        :param nonlinearity: Activation function: 'relu', 'lrelu'
+        :param use_wscale: Enable equalized learning rate?
+        :param mbstd_group_size: Group size for the mini_batch standard deviation layer, 0 = disable.
+        :param mbstd_num_features: Number of features for the mini_batch standard deviation layer.
+        :param blur_filter: Low-pass filter to apply when resampling activations. None = no filtering.
+        :param structure: 'fixed' = no progressive growing, 'linear' = human-readable
+        :param kwargs: Ignore unrecognized keyword args.
+        """
+        super(Discriminator, self).__init__()
+
+        assert structure in ['fixed', 'linear']
+        self.structure = structure
+
+        if blur_filter is None:
+            blur_filter = [1, 2, 1]
+
         self.mbstd_group_size = mbstd_group_size
         self.mbstd_num_features = mbstd_num_features
         resolution_log2 = int(np.log2(resolution))
@@ -64,11 +116,29 @@ class Discriminator(nn.Module):
         act, gain = {'relu': (torch.relu, np.sqrt(2)),
                      'lrelu': (nn.LeakyReLU(negative_slope=0.2), np.sqrt(2))}[nonlinearity]
 
-        self.gain = gain
-        self.use_wscale = use_wscale
+        # Building blocks.
+        final_blocks = []
 
-    def forward(self, x):
-        pass
+        # create the fromRGB layers for various inputs:
+
+        # create the remaining layers
+        
+
+        # register the temporary downSampler
+        self.temporaryDownsampler = AvgPool2d(2)
+
+    def forward(self, images_in, depth, alpha, labels_in=None):
+        """
+        :param images_in: First input: Images [mini_batch, channel, height, width].
+        :param labels_in: Second input: Labels [mini_batch, label_size].
+        :param depth: current height of operation (Progressive GAN)
+        :param alpha: current value of alpha for fade-in
+        :return:
+        """
+
+        assert depth < self.height, "Requested output depth cannot be produced"
+
+        return scores_out
 
 
 class StyleGAN:
@@ -76,45 +146,13 @@ class StyleGAN:
 
     def __init__(self, depth, latent_size
                  ):
-        """
-        constructor for the class
-        :param depth: depth of the GAN (will be used for each generator and discriminator)
-        :param latent_size: latent size of the manifold used by the GAN
-        :param learning_rate: learning rate for Adam
-        :param beta_1: beta_1 for Adam
-        :param beta_2: beta_2 for Adam
-        :param eps: epsilon for Adam
-        :param n_critic: number of times to update discriminator per generator update
-        :param drift: drift penalty for the
-                    (Used only if loss is wgan or wgan-gp)
-        :param use_eql: whether to use equalized learning rate
-        :param loss: the loss function to be used
-                             Can either be a string =>
-                                  ["wgan-gp", "wgan", "lsgan", "lsgan-with-sigmoid",
-                                  "hinge", "standard-gan" or "relativistic-hinge"]
-                             Or an instance of GANLoss
-        :param use_ema: boolean for whether to use exponential moving averages
-        :param ema_decay: value of mu for ema
-        :param device: device to run the GAN on (GPU / CPU)
-        """
+        pass
+
         # Create the Generator and the Discriminator
-
         # if code is to be run on GPU, we can use DataParallel:
-
         # state of the object
-        self.latent_size = latent_size
-        self.depth = depth
-        self.use_ema = use_ema
-        self.ema_decay = ema_decay
-        self.n_critic = n_critic
-        self.use_eql = use_eql
-        self.device = device
-        self.drift = drift
-
         # define the optimizers for the discriminator and generator
-
         # define the loss function used for training the GAN
-
         # Use of ema
 
     def __setup_loss(self, loss):
