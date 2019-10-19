@@ -287,6 +287,18 @@ class DiscriminatorTop(nn.Sequential):
         super().__init__(OrderedDict(layers))
 
 
+class DiscriminatorBlock(nn.Sequential):
+    def __init__(self, in_channels, out_channels, gain, use_wscale, activation_layer):
+        super().__init__(OrderedDict([
+            ('conv0', EqualizedConv2d(in_channels, in_channels, 3, gain=gain, use_wscale=use_wscale)),
+            # out channels nf(res-1)
+            ('act0', activation_layer),
+            ('blur', BlurLayer()),
+            ('conv1_down', EqualizedConv2d(in_channels, out_channels, 3,
+                                           gain=gain, use_wscale=use_wscale, downscale=True)),
+            ('act1', activation_layer)]))
+
+
 if __name__ == '__main__':
     g_mapping = GMapping()
     g_synthesis = GSynthesis()

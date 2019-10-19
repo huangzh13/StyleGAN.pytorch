@@ -8,12 +8,14 @@
 """
 
 import numpy as np
+from collections import OrderedDict
 
 import torch
 import torch.nn as nn
 from torch.nn import AvgPool2d
 
-from models.Blocks import GMapping, GSynthesis
+from models.Blocks import GMapping, GSynthesis, DiscriminatorTop, DiscriminatorBlock
+from models.CustomLayers import EqualizedConv2d
 
 
 class Generator(nn.Module):
@@ -99,14 +101,11 @@ class Discriminator(nn.Module):
         """
         super(Discriminator, self).__init__()
 
-        assert structure in ['fixed', 'linear']
         self.structure = structure
 
         if blur_filter is None:
             blur_filter = [1, 2, 1]
 
-        self.mbstd_group_size = mbstd_group_size
-        self.mbstd_num_features = mbstd_num_features
         resolution_log2 = int(np.log2(resolution))
         assert resolution == 2 ** resolution_log2 and resolution >= 4
 
@@ -116,18 +115,30 @@ class Discriminator(nn.Module):
         act, gain = {'relu': (torch.relu, np.sqrt(2)),
                      'lrelu': (nn.LeakyReLU(negative_slope=0.2), np.sqrt(2))}[nonlinearity]
 
-        # Building blocks.
-        final_blocks = []
+        # Building the final block.
+        final_block = [('4x4', DiscriminatorTop(**kwargs))]
+        self.top = nn.Sequential(OrderedDict(final_block))
 
         # create the fromRGB layers for various inputs:
+        from_rgb = [EqualizedConv2d(**kwargs)]
 
         # create the remaining layers
-        
+        blocks = []
+        for res in range(3, resolution_log2 + 1):
+            last_channels = nf(res - 2)
+            channels = nf(res - 1)
+            name = '{s}x{s}'.format(s=2 ** res)
+            blocks.append((name, DiscriminatorBlock(**kwargs)))
+            # create the fromRGB layers for various inputs:
+            from_rgb.append(EqualizedConv2d(**kwargs))
+
+        self.blocks = nn.Sequential(OrderedDict(blocks))
+        self.from_rgb = nn.ModuleList(from_rgb)
 
         # register the temporary downSampler
         self.temporaryDownsampler = AvgPool2d(2)
 
-    def forward(self, images_in, depth, alpha, labels_in=None):
+    def forward(self, images_in, depth=None, alpha=1., labels_in=None):
         """
         :param images_in: First input: Images [mini_batch, channel, height, width].
         :param labels_in: Second input: Labels [mini_batch, label_size].
@@ -136,7 +147,25 @@ class Discriminator(nn.Module):
         :return:
         """
 
-        assert depth < self.height, "Requested output depth cannot be produced"
+        assert depth < self.depth, "Requested output depth cannot be produced"
+
+        if self.structure == 'fixed':
+            # TODO
+            scores_out = images_in
+        elif self.structure == 'linear':
+            if depth > 0:
+                residual = self.from_rgb[depth - 1](self.temporaryDownsampler(images_in))
+                straight = self.blocks[depth - 1](self.from_rgb[depth](images_in))
+                y = (alpha * straight) + ((1 - alpha) * residual)
+
+                for block in reversed(self.blocks[:depth - 1]):
+                    y = block(y)
+            else:
+                y = self.from_rgb[0](images_in)
+
+            scores_out = self.top(y)
+        else:
+            raise KeyError("Unknown structure: ", self.structure)
 
         return scores_out
 
