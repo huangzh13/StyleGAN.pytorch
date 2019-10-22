@@ -29,6 +29,11 @@ if __name__ == '__main__':
     style_gan = StyleGAN(opt, )
 
     # train the network
-    style_gan.train(dataset=dataset, )
+    style_gan.train(dataset=dataset,
+                    epochs=,
+                    fade_in_percentage=,
+                    start_depth=,
+                    batch_sizes=,
+                    num_samples=, )
 
     print('Done.')
