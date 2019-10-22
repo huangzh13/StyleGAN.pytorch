@@ -9,6 +9,7 @@
 
 import argparse
 
+from data import make_dataset
 from models.GAN import StyleGAN
 
 if __name__ == '__main__':
@@ -22,11 +23,12 @@ if __name__ == '__main__':
     opt.freeze()
 
     # create the dataset for training
+    dataset = make_dataset(opt)
 
     # Init the network
-    style_gan = StyleGAN()
+    style_gan = StyleGAN(opt, )
 
     # train the network
-    style_gan.train()
+    style_gan.train(dataset=dataset, )
 
     print('Done.')

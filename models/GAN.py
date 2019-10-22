@@ -198,8 +198,8 @@ class StyleGAN:
         self.ema_decay = ema_decay
 
         # Create the Generator and the Discriminator
-        self.gen = Generator(num_channels=, resolution=, **g_args)
-        self.dis = Discriminator(num_channels=, resolution=, **d_args)
+        # self.gen = Generator(num_channels=, resolution=, **g_args)
+        # self.dis = Discriminator(num_channels=, resolution=, **d_args)
 
         # if code is to be run on GPU, we can use DataParallel:
 
@@ -304,6 +304,7 @@ class StyleGAN:
     def optimize_generator(self, noise, real_batch, depth, alpha):
         """
         performs one step of weight update on generator for the given batch_size
+
         :param noise: input random noise required for generating samples
         :param real_batch: batch of real samples
         :param depth: depth of the network at which optimization is done
@@ -311,8 +312,8 @@ class StyleGAN:
         :return: current loss (Wasserstein estimate)
         """
 
-    def train(self, dataset, epochs, batch_sizes, fade_in_percentage, num_samples=16, start_depth=0,
-              num_workers=3, feedback_factor=100, checkpoint_factor=1,
+    def train(self, dataset, epochs, batch_sizes, fade_in_percentage, num_samples=16,
+              start_depth=0, num_workers=3, feedback_factor=100, checkpoint_factor=1,
               log_dir="./models/", sample_dir="./samples/", save_dir="./models/"):
         """
         Utility method for training the ProGAN. Note that you don't have to necessarily use this
