@@ -26,14 +26,15 @@ if __name__ == '__main__':
     dataset = make_dataset(opt)
 
     # Init the network
-    style_gan = StyleGAN(opt, )
+    style_gan = StyleGAN(g_args=opt.model.gen,
+                         d_args=opt.model.dis,
+                         g_opt_args=opt.model.g_optim,
+                         d_opt_args=opt.model.d_optim)
 
     # train the network
     style_gan.train(dataset=dataset,
-                    epochs=,
-                    fade_in_percentage=,
-                    start_depth=,
-                    batch_sizes=,
-                    num_samples=, )
+                    epochs=opt.sched.epochs,
+                    batch_sizes=opt.sched.batch_sizes,
+                    fade_in_percentage=opt.sched.fade_in_percentage)
 
     print('Done.')

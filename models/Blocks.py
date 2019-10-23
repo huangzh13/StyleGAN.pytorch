@@ -222,9 +222,10 @@ class GSynthesis(nn.Module):
         # register the temporary upsampler
         self.temporaryUpsampler = lambda x: interpolate(x, scale_factor=2)
 
-    def forward(self, x, depth, alpha):
+    def forward(self, x, depth, alpha, labels_in=None):
         """
             forward pass of the Generator
+            :param labels_in:
             :param x: input noise
             :param depth: current depth from where output is required
             :param alpha: value of alpha for fade-in effect

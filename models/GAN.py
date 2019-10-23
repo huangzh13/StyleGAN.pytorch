@@ -20,6 +20,7 @@ import torch.nn as nn
 from torch.nn import AvgPool2d
 from torch.optim import Adam
 
+from data import get_data_loader
 from models.Blocks import GMapping, GSynthesis, DiscriminatorTop, DiscriminatorBlock
 from models.CustomLayers import EqualizedConv2d, update_average
 import models.Losses as losses
@@ -57,8 +58,10 @@ class Generator(nn.Module):
         # Update moving average of W.
         # TODO
 
-    def forward(self, latents_in, labels_in=None):
+    def forward(self, latents_in, depth, alpha, labels_in=None):
         """
+        :param alpha:
+        :param depth:
         :param latents_in: First input: Latent vectors (Z) [mini_batch, latent_size].
         :param labels_in: Second input: Conditioning labels [mini_batch, label_size].
         :return:
@@ -71,15 +74,15 @@ class Generator(nn.Module):
         # Apply truncation trick.
         # TODO
 
-        fake_images = self.g_synthesis(dlatents_in)
+        fake_images = self.g_synthesis(dlatents_in, depth, alpha)
 
         return fake_images
 
 
 class Discriminator(nn.Module):
-    def __init__(self, num_channels=1, resolution=32, fmap_base=8192, fmap_decay=1.0, fmap_max=512,
+    def __init__(self, resolution, num_channels=3, fmap_base=8192, fmap_decay=1.0, fmap_max=512,
                  nonlinearity='lrelu', use_wscale=True, mbstd_group_size=4, mbstd_num_features=1,
-                 blur_filter=None, structure='liner', **kwargs):
+                 blur_filter=None, structure='linear', **kwargs):
         """
         Discriminator used in the StyleGAN paper.
         :param num_channels: Number of input color channels. Overridden based on dataset.
@@ -106,6 +109,7 @@ class Discriminator(nn.Module):
 
         resolution_log2 = int(np.log2(resolution))
         assert resolution == 2 ** resolution_log2 and resolution >= 4
+        self.depth = resolution_log2
 
         def nf(stage):
             return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
@@ -125,7 +129,7 @@ class Discriminator(nn.Module):
 
         # create the remaining layers
         blocks = []
-        for res in range(3, resolution_log2 + 1):
+        for res in range(resolution_log2, 2, -1):
             name = '{s}x{s}'.format(s=2 ** res)
             blocks.append((name, DiscriminatorBlock(nf(res - 1), nf(res - 2),
                                                     gain=gain, use_wscale=use_wscale, activation_layer=act)))
@@ -139,7 +143,7 @@ class Discriminator(nn.Module):
         # register the temporary downSampler
         self.temporaryDownsampler = AvgPool2d(2)
 
-    def forward(self, images_in, depth=None, alpha=1., labels_in=None):
+    def forward(self, images_in, depth, alpha=1., labels_in=None):
         """
         :param images_in: First input: Images [mini_batch, channel, height, width].
         :param labels_in: Second input: Labels [mini_batch, label_size].
@@ -174,19 +178,12 @@ class Discriminator(nn.Module):
 class StyleGAN:
     """ Wrapper around the Generator and the Discriminator """
 
-    def __init__(self, g_args, d_args, g_opt_args, d_opt_args, depth=7, latent_size=512, learning_rate=0.001, beta_1=0,
-                 beta_2=0.99, eps=1e-8, n_critic=1, use_eql=True,
-                 loss="relativistic-hinge", use_ema=True, ema_decay=0.999,
-                 device=torch.device("cpu")):
+    def __init__(self, g_args, d_args, g_opt_args, d_opt_args, depth=7, num_channels=3, latent_size=512, d_repeats=1,
+                 loss="relativistic-hinge", use_ema=True, ema_decay=0.999, device=torch.device("cpu")):
         """
         :param depth:
         :param latent_size:
-        :param learning_rate:
-        :param beta_1:
-        :param beta_2:
-        :param eps:
-        :param n_critic:
-        :param use_eql:
+        :param d_repeats:
         :param loss:
         :param use_ema:
         :param ema_decay:
@@ -194,17 +191,25 @@ class StyleGAN:
         """
 
         # state of the object
+        self.depth = depth
+        self.latent_size = latent_size
+        self.num_channels = num_channels
+        self.d_repeats = d_repeats
         self.use_ema = use_ema
         self.ema_decay = ema_decay
+        self.device = device
 
         # Create the Generator and the Discriminator
-        # self.gen = Generator(num_channels=, resolution=, **g_args)
-        # self.dis = Discriminator(num_channels=, resolution=, **d_args)
+        resolution = 2 ** self.depth
+        self.gen = Generator(num_channels=self.num_channels, resolution=resolution, **g_args)
+        self.dis = Discriminator(num_channels=self.num_channels, resolution=resolution, **d_args)
 
         # if code is to be run on GPU, we can use DataParallel:
+        # TODO
 
         # define the optimizers for the discriminator and generator
-        self.__setup_optim(**g_opt_args, **d_opt_args)
+        self.__setup_gen_optim(**g_opt_args)
+        self.__setup_dis_optim(**d_opt_args)
 
         # define the loss function used for training the GAN
         self.loss = self.__setup_loss(loss)
@@ -218,8 +223,10 @@ class StyleGAN:
             # initialize the gen_shadow weights equal to the weights of gen
             self.ema_updater(self.gen_shadow, self.gen, beta=0)
 
-    def __setup_optim(self, learning_rate, beta_1, beta_2, eps):
+    def __setup_gen_optim(self, learning_rate, beta_1, beta_2, eps):
         self.gen_optim = Adam(self.gen.parameters(), lr=learning_rate, betas=(beta_1, beta_2), eps=eps)
+
+    def __setup_dis_optim(self, learning_rate, beta_1, beta_2, eps):
         self.dis_optim = Adam(self.dis.parameters(), lr=learning_rate, betas=(beta_1, beta_2), eps=eps)
 
     def __setup_loss(self, loss):
@@ -286,7 +293,7 @@ class StyleGAN:
         real_samples = self.__progressive_down_sampling(real_batch, depth, alpha)
 
         loss_val = 0
-        for _ in range(self.n_critic):
+        for _ in range(self.d_repeats):
             # generate a batch of samples
             fake_samples = self.gen(noise, depth, alpha).detach()
 
@@ -299,7 +306,7 @@ class StyleGAN:
 
             loss_val += loss.item()
 
-        return loss_val / self.n_critic
+        return loss_val / self.d_repeats
 
     def optimize_generator(self, noise, real_batch, depth, alpha):
         """
@@ -312,9 +319,29 @@ class StyleGAN:
         :return: current loss (Wasserstein estimate)
         """
 
+        real_samples = self.__progressive_down_sampling(real_batch, depth, alpha)
+
+        # generate fake samples:
+        fake_samples = self.gen(noise, depth, alpha)
+
+        # TODO_complete:
+        # Change this implementation for making it compatible for relativisticGAN
+        loss = self.loss.gen_loss(real_samples, fake_samples, depth, alpha)
+
+        # optimize the generator
+        self.gen_optim.zero_grad()
+        loss.backward()
+        self.gen_optim.step()
+
+        # if use_ema is true, apply ema to the generator parameters
+        if self.use_ema:
+            self.ema_updater(self.gen_shadow, self.gen, self.ema_decay)
+
+        # return the loss value
+        return loss.item()
+
     def train(self, dataset, epochs, batch_sizes, fade_in_percentage, num_samples=16,
-              start_depth=0, num_workers=3, feedback_factor=100, checkpoint_factor=1,
-              log_dir="./models/", sample_dir="./samples/", save_dir="./models/"):
+              start_depth=1, num_workers=3, feedback_factor=100, checkpoint_factor=1, sched_args=None):
         """
         Utility method for training the ProGAN. Note that you don't have to necessarily use this
         you can use the optimize_generator and optimize_discriminator for your own training routine.
@@ -324,24 +351,22 @@ class StyleGAN:
                         since the batch_sizes for resolutions can be different)
         :param epochs: list of number of epochs to train the network for every resolution
         :param batch_sizes: list of batch_sizes for every resolution
-        :param fade_in_percentage: list of percentages of epochs per resolution
-                                   used for fading in the new layer
+        :param fade_in_percentage: list of percentages of epochs per resolution used for fading in the new layer
                                    not used for first resolution, but dummy value still needed.
         :param num_samples: number of samples generated in sample_sheet. def=36
         :param start_depth: start training from this depth. def=0
         :param num_workers: number of workers for reading the data. def=3
         :param feedback_factor: number of logs per epoch. def=100
-        :param log_dir: directory for saving the loss logs. def="./models/"
-        :param sample_dir: directory for saving the generated samples. def="./samples/"
         :param checkpoint_factor: save model after these many epochs.
                                   Note that only one model is stored per resolution.
                                   during one resolution, the checkpoint will be updated (Rewritten)
                                   according to this factor.
-        :param save_dir: directory for saving the models (.pth files)
         :return: None (Writes multiple files to disk)
         """
 
-        assert self.depth == len(batch_sizes), "batch_sizes not compatible with depth"
+        assert self.depth <= len(batch_sizes), "batch_sizes not compatible with depth"
+        assert self.depth <= len(batch_sizes), "batch_sizes not compatible with depth"
+        assert self.depth <= len(batch_sizes), "batch_sizes not compatible with depth"
 
         # turn the generator and discriminator into train mode
         self.gen.train()
@@ -359,6 +384,7 @@ class StyleGAN:
         for current_depth in range(start_depth, self.depth):
             print("\n\nCurrently working on Depth: ", current_depth)
             # Choose training parameters and configure training ops.
+            # TODO
 
             current_res = np.power(2, current_depth + 2)
             print("Current resolution: %d x %d" % (current_res, current_res))
@@ -370,20 +396,20 @@ class StyleGAN:
                 start = timeit.default_timer()  # record time at the start of epoch
 
                 print("\nEpoch: %d" % epoch)
-                total_batches = len(iter(data))
+                # total_batches = len(iter(data))
+                total_batches = len(data)
 
-                fader_point = int((fade_in_percentage[current_depth] / 100)
-                                  * epochs[current_depth] * total_batches)
+                fade_point = int((fade_in_percentage[current_depth] / 100)
+                                 * epochs[current_depth] * total_batches)
 
                 step = 0  # counter for number of iterations
 
                 for (i, batch) in enumerate(data, 1):
                     # calculate the alpha for fading in the layers
-                    alpha = ticker / fader_point if ticker <= fader_point else 1
+                    alpha = ticker / fade_point if ticker <= fade_point else 1
 
                     # extract current batch of data for training
                     images = batch.to(self.device)
-
                     gan_input = torch.randn(images.shape[0], self.latent_size).to(self.device)
 
                     # optimize the discriminator:
@@ -400,18 +426,11 @@ class StyleGAN:
                               % (elapsed, i, dis_loss, gen_loss))
 
                         # also write the losses to the log file:
-                        os.makedirs(log_dir, exist_ok=True)
-                        log_file = os.path.join(log_dir, "loss_" + str(current_depth) + ".log")
-                        with open(log_file, "a") as log:
-                            log.write(str(step) + "\t" + str(dis_loss) + "\t" + str(gen_loss) + "\n")
+                        # TODO
 
                         # create a grid of samples and save it
-                        os.makedirs(sample_dir, exist_ok=True)
-                        gen_img_file = os.path.join(sample_dir, "gen_" + str(current_depth) +
-                                                    "_" + str(epoch) + "_" + str(i) + ".png")
+                        # TODO
 
 
 if __name__ == '__main__':
-    net = StyleGAN()
-
     print('Done.')
