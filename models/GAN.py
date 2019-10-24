@@ -28,6 +28,7 @@ import models.Losses as losses
 
 class Generator(nn.Module):
     def __init__(self,
+                 resolution,
                  truncation_psi=0.7,
                  truncation_cutoff=8,
                  truncation_psi_val=None,
@@ -51,18 +52,18 @@ class Generator(nn.Module):
 
         # Setup components.
         # TODO
-
-        self.g_mapping = GMapping(**kwargs)
-        self.g_synthesis = GSynthesis(**kwargs)
+        num_layers = (int(np.log2(resolution)) - 1) * 2
+        self.g_mapping = GMapping(dlatent_broadcast=num_layers, **kwargs)
+        self.g_synthesis = GSynthesis(resolution=resolution, **kwargs)
 
         # Update moving average of W.
         # TODO
 
     def forward(self, latents_in, depth, alpha, labels_in=None):
         """
-        :param alpha:
-        :param depth:
         :param latents_in: First input: Latent vectors (Z) [mini_batch, latent_size].
+        :param depth:
+        :param alpha:
         :param labels_in: Second input: Conditioning labels [mini_batch, label_size].
         :return:
         """
@@ -117,27 +118,24 @@ class Discriminator(nn.Module):
         act, gain = {'relu': (torch.relu, np.sqrt(2)),
                      'lrelu': (nn.LeakyReLU(negative_slope=0.2), np.sqrt(2))}[nonlinearity]
 
-        # Building the final block.
-        final_block = [('4x4', DiscriminatorTop(self.mbstd_group_size, self.mbstd_num_features,
-                                                in_channels=nf(2), intermediate_channels=nf(2),
-                                                gain=gain, use_wscale=use_wscale, activation_layer=act))]
-        self.top = nn.Sequential(OrderedDict(final_block))
-
-        # create the fromRGB layers for various inputs:
-        from_rgb = [EqualizedConv2d(num_channels, nf(resolution_log2 - 1), kernel_size=1,
-                                    gain=gain, use_wscale=use_wscale)]
-
         # create the remaining layers
         blocks = []
+        from_rgb = []
         for res in range(resolution_log2, 2, -1):
-            name = '{s}x{s}'.format(s=2 ** res)
-            blocks.append((name, DiscriminatorBlock(nf(res - 1), nf(res - 2),
-                                                    gain=gain, use_wscale=use_wscale, activation_layer=act)))
+            # name = '{s}x{s}'.format(s=2 ** res)
+            blocks.append(DiscriminatorBlock(nf(res - 1), nf(res - 2),
+                                             gain=gain, use_wscale=use_wscale, activation_layer=act))
             # create the fromRGB layers for various inputs:
             from_rgb.append(EqualizedConv2d(num_channels, nf(res - 1), kernel_size=1,
                                             gain=gain, use_wscale=use_wscale))
+        self.blocks = nn.ModuleList(blocks)
 
-        self.blocks = nn.Sequential(OrderedDict(blocks))
+        # Building the final block.
+        self.final_block = DiscriminatorTop(self.mbstd_group_size, self.mbstd_num_features,
+                                            in_channels=nf(2), intermediate_channels=nf(2),
+                                            gain=gain, use_wscale=use_wscale, activation_layer=act)
+        from_rgb.append(EqualizedConv2d(num_channels, nf(2), kernel_size=1,
+                                        gain=gain, use_wscale=use_wscale))
         self.from_rgb = nn.ModuleList(from_rgb)
 
         # register the temporary downSampler
@@ -156,19 +154,13 @@ class Discriminator(nn.Module):
 
         if self.structure == 'fixed':
             # TODO
-            scores_out = images_in
+            x = self.from_rgb[0](images_in)
+            for i, block in enumerate(self.blocks):
+                x = block(x)
+            scores_out = self.final_block(x)
         elif self.structure == 'linear':
-            if depth > 0:
-                residual = self.from_rgb[depth - 1](self.temporaryDownsampler(images_in))
-                straight = self.blocks[depth - 1](self.from_rgb[depth](images_in))
-                y = (alpha * straight) + ((1 - alpha) * residual)
-
-                for block in reversed(self.blocks[:depth - 1]):
-                    y = block(y)
-            else:
-                y = self.from_rgb[0](images_in)
-
-            scores_out = self.top(y)
+            # TODO
+            scores_out = images_in
         else:
             raise KeyError("Unknown structure: ", self.structure)
 
@@ -178,10 +170,11 @@ class Discriminator(nn.Module):
 class StyleGAN:
     """ Wrapper around the Generator and the Discriminator """
 
-    def __init__(self, g_args, d_args, g_opt_args, d_opt_args, depth=7, num_channels=3, latent_size=512, d_repeats=1,
-                 loss="relativistic-hinge", use_ema=True, ema_decay=0.999, device=torch.device("cpu")):
+    def __init__(self, structure, resolution, num_channels,
+                 g_args, d_args, g_opt_args, d_opt_args, loss="relativistic-hinge",
+                 latent_size=512, d_repeats=1, use_ema=True, ema_decay=0.999,
+                 device=torch.device("cpu")):
         """
-        :param depth:
         :param latent_size:
         :param d_repeats:
         :param loss:
@@ -191,7 +184,10 @@ class StyleGAN:
         """
 
         # state of the object
-        self.depth = depth
+        assert structure in ['fixed', 'linear']
+        self.structure = structure
+        self.depth = int(np.log2(resolution)) - 1
+
         self.latent_size = latent_size
         self.num_channels = num_channels
         self.d_repeats = d_repeats
@@ -200,9 +196,15 @@ class StyleGAN:
         self.device = device
 
         # Create the Generator and the Discriminator
-        resolution = 2 ** self.depth
-        self.gen = Generator(num_channels=self.num_channels, resolution=resolution, **g_args)
-        self.dis = Discriminator(num_channels=self.num_channels, resolution=resolution, **d_args)
+        self.gen = Generator(num_channels=self.num_channels,
+                             resolution=resolution,
+                             structure=self.structure,
+                             **g_args).to(self.device)
+
+        self.dis = Discriminator(num_channels=self.num_channels,
+                                 resolution=resolution,
+                                 structure=self.structure,
+                                 **d_args).to(self.device)
 
         # if code is to be run on GPU, we can use DataParallel:
         # TODO
@@ -262,6 +264,9 @@ class StyleGAN:
 
         from torch.nn import AvgPool2d
         from torch.nn.functional import interpolate
+
+        if self.structure == 'fixed':
+            return real_batch
 
         # down_sample the real_batch for the given depth
         down_sample_factor = int(np.power(2, self.depth - depth - 1))
@@ -364,9 +369,9 @@ class StyleGAN:
         :return: None (Writes multiple files to disk)
         """
 
-        assert self.depth <= len(batch_sizes), "batch_sizes not compatible with depth"
-        assert self.depth <= len(batch_sizes), "batch_sizes not compatible with depth"
-        assert self.depth <= len(batch_sizes), "batch_sizes not compatible with depth"
+        assert self.depth <= len(batch_sizes) + 1, "batch_sizes not compatible with depth"
+        assert self.depth <= len(batch_sizes) + 1, "batch_sizes not compatible with depth"
+        assert self.depth <= len(batch_sizes) + 1, "batch_sizes not compatible with depth"
 
         # turn the generator and discriminator into train mode
         self.gen.train()

@@ -12,14 +12,14 @@ from yacs.config import CfgNode as CN
 cfg = CN()
 
 cfg.output_dir = ""
-cfg.depth = 7
+cfg.structure = 'fixed'
 
 # ---------------------------------------------------------------------------- #
 # Options for scheduler
 # ---------------------------------------------------------------------------- #
 cfg.sched = CN()
-cfg.sched.epochs = [27, 54, 54, 54, 54, 54, 54]
-cfg.sched.batch_sizes = [64, 64, 64, 64, 32, 32, 16]
+cfg.sched.epochs = [1, 1, 54, 54, 54, 54, 54]
+cfg.sched.batch_sizes = [2, 16, 32, 64, 32, 32, 16]
 cfg.sched.fade_in_percentage = [50, 50, 50, 50, 50, 50, 50]
 
 # cfg.sched.G_lrate_dict = {128: 0.0015, 256: 0.002, 512: 0.003, 1024: 0.003}
@@ -31,6 +31,8 @@ cfg.sched.fade_in_percentage = [50, 50, 50, 50, 50, 50, 50]
 cfg.dataset = CN()
 cfg.dataset.img_dir = ""
 cfg.dataset.folder = True
+cfg.dataset.resolution = 128
+cfg.dataset.channels = 3
 
 cfg.model = CN()
 # ---------------------------------------------------------------------------- #
@@ -38,12 +40,14 @@ cfg.model = CN()
 # ---------------------------------------------------------------------------- #
 cfg.model.gen = CN()
 cfg.model.gen.latent_size = 512
+cfg.model.gen.mapping_layers = 4
 
 # ---------------------------------------------------------------------------- #
 # Options for Discriminator
 # ---------------------------------------------------------------------------- #
 cfg.model.dis = CN()
 cfg.model.dis.use_wscale = True
+
 # ---------------------------------------------------------------------------- #
 # Options for Generator Optimizer
 # ---------------------------------------------------------------------------- #

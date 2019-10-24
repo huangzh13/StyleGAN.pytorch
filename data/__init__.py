@@ -12,12 +12,12 @@ from data.transforms import get_transform
 
 
 def make_dataset(cfg):
-    if cfg.dataset.folder:
+    if cfg.folder:
         Dataset = FoldersDistributedDataset
     else:
         Dataset = FlatDirectoryImageDataset
 
-    _dataset = Dataset(data_dir=cfg.dataset.img_dir, transform=get_transform(new_size=128))
+    _dataset = Dataset(data_dir=cfg.img_dir, transform=get_transform(new_size=(cfg.resolution, cfg.resolution)))
 
     return _dataset
 
@@ -38,6 +38,7 @@ def get_data_loader(dataset, batch_size, num_workers):
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
+        drop_last=True,
         # pin_memory=True
     )
 

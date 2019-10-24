@@ -70,7 +70,7 @@ class FlatDirectoryImageDataset(Dataset):
 
         else:
             # read the image:
-            img = Image.open(self.files[idx])
+            img = Image.open(self.files[idx]).convert('RGB')
 
         # apply the transforms on the image
         if self.transform is not None:

@@ -7,9 +7,9 @@
 -------------------------------------------------
 """
 
-import numpy as np
 from collections import OrderedDict
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn.functional import interpolate
@@ -183,10 +183,6 @@ class GSynthesis(nn.Module):
         def nf(stage):
             return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
 
-        # 'fixed' = no progressive growing,
-        # 'linear' = human-readable
-        # ('recursive' = efficient, 'auto' = select automatically.)
-        assert structure in ['fixed', 'linear']
         self.structure = structure
 
         if blur_filter is None:
@@ -201,9 +197,8 @@ class GSynthesis(nn.Module):
                      'lrelu': (nn.LeakyReLU(negative_slope=0.2), np.sqrt(2))}[nonlinearity]
 
         # Early layers.
-        init_blocks = [('4x4', InputBlock(nf(1), dlatent_size, const_input_layer, gain, use_wscale,
-                                          use_noise, use_pixel_norm, use_instance_norm, use_styles, act))]
-        self.init_layer = nn.Sequential(OrderedDict(init_blocks))
+        self.init_block = InputBlock(nf(1), dlatent_size, const_input_layer, gain, use_wscale,
+                                     use_noise, use_pixel_norm, use_instance_norm, use_styles, act)
         # create the ToRGB layers for various outputs
         rgb_converters = [EqualizedConv2d(nf(1), num_channels, 1, gain=1, use_wscale=use_wscale)]
 
@@ -212,34 +207,42 @@ class GSynthesis(nn.Module):
         for res in range(3, resolution_log2 + 1):
             last_channels = nf(res - 2)
             channels = nf(res - 1)
-            name = '{s}x{s}'.format(s=2 ** res)
-            blocks.append((name, GSynthesisBlock(last_channels, channels, blur_filter, dlatent_size, gain, use_wscale,
-                                                 use_noise, use_pixel_norm, use_instance_norm, use_styles, act)))
+            # name = '{s}x{s}'.format(s=2 ** res)
+            blocks.append(GSynthesisBlock(last_channels, channels, blur_filter, dlatent_size, gain, use_wscale,
+                                          use_noise, use_pixel_norm, use_instance_norm, use_styles, act))
             rgb_converters.append(EqualizedConv2d(channels, num_channels, 1, gain=1, use_wscale=use_wscale))
-        self.layers = nn.Sequential(OrderedDict(blocks))
+
+        self.blocks = nn.ModuleList(blocks)
         self.to_rgb = nn.ModuleList(rgb_converters)
 
         # register the temporary upsampler
         self.temporaryUpsampler = lambda x: interpolate(x, scale_factor=2)
 
-    def forward(self, x, depth, alpha, labels_in=None):
+    def forward(self, dlatents_in, depth=0, alpha=0., labels_in=None):
         """
             forward pass of the Generator
+            :param dlatents_in: Input: Disentangled latents (W) [mini_batch, num_layers, dlatent_size].
             :param labels_in:
-            :param x: input noise
             :param depth: current depth from where output is required
             :param alpha: value of alpha for fade-in effect
             :return: y => output
         """
-        # Input: Disentangled latents (W) [mini_batch, num_layers, dlatent_size].
+
         assert depth < self.num_layers, "Requested output depth cannot be produced"
 
-        if depth > 0:
-            pass
+        if self.structure == 'fixed':
+            # TODO
+            x = self.init_block(dlatents_in[:, 0:2])
+            for i, block in enumerate(self.blocks):
+                x = block(x, dlatents_in[:, 2 * (i + 1):2 * (i + 2)])
+            images_out = self.to_rgb[-1](x)
+        elif self.structure == 'linear':
+            # TODO
+            images_out = dlatents_in
         else:
-            pass
+            raise KeyError("Unknown structure: ", self.structure)
 
-        return x
+        return images_out
 
 
 class DiscriminatorTop(nn.Sequential):
@@ -296,7 +299,7 @@ class DiscriminatorBlock(nn.Sequential):
             ('act0', activation_layer),
             ('blur', BlurLayer()),
             ('conv1_down', EqualizedConv2d(in_channels, out_channels, kernel_size=3,
-                                           gain=gain, use_wscale=use_wscale)),
+                                           gain=gain, use_wscale=use_wscale, downscale=True)),
             ('act1', activation_layer)]))
 
 

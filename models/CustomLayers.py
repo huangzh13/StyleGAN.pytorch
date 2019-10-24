@@ -7,6 +7,7 @@
 -------------------------------------------------
 """
 
+import numpy as np
 from collections import OrderedDict
 
 import torch
@@ -45,6 +46,37 @@ class Upscale2d(nn.Module):
         return self.upscale2d(x, factor=self.factor, gain=self.gain)
 
 
+class Downscale2d(nn.Module):
+    def __init__(self, factor=2, gain=1):
+        super().__init__()
+        assert isinstance(factor, int) and factor >= 1
+        self.factor = factor
+        self.gain = gain
+        if factor == 2:
+            f = [np.sqrt(gain) / factor] * factor
+            self.blur = BlurLayer(kernel=f, normalize=False, stride=factor)
+        else:
+            self.blur = None
+
+    def forward(self, x):
+        assert x.dim() == 4
+        # 2x2, float32 => downscale using _blur2d().
+        if self.blur is not None and x.dtype == torch.float32:
+            return self.blur(x)
+
+        # Apply gain.
+        if self.gain != 1:
+            x = x * self.gain
+
+        # No-op => early exit.
+        if self.factor == 1:
+            return x
+
+        # Large factor => downscale using tf.nn.avg_pool().
+        # NOTE: Requires tf_config['graph_options.place_pruned_graph']=True to work.
+        return F.avg_pool2d(x, self.factor)
+
+
 class EqualizedLinear(nn.Module):
     """Linear layer with equalized learning rate and custom learning rate multiplier."""
 
@@ -75,14 +107,17 @@ class EqualizedLinear(nn.Module):
 class EqualizedConv2d(nn.Module):
     """Conv layer with equalized learning rate and custom learning rate multiplier."""
 
-    def __init__(self, input_channels, output_channels, kernel_size, gain=2 ** 0.5, use_wscale=False, lrmul=1,
-                 bias=True,
-                 intermediate=None, upscale=False):
+    def __init__(self, input_channels, output_channels, kernel_size, stride=1, gain=2 ** 0.5, use_wscale=False,
+                 lrmul=1, bias=True, intermediate=None, upscale=False, downscale=False):
         super().__init__()
         if upscale:
             self.upscale = Upscale2d()
         else:
             self.upscale = None
+        if downscale:
+            self.downscale = Downscale2d()
+        else:
+            self.downscale = None
         he_std = gain * (input_channels * kernel_size ** 2) ** (-0.5)  # He init
         self.kernel_size = kernel_size
         if use_wscale:
@@ -112,20 +147,35 @@ class EqualizedConv2d(nn.Module):
             w = self.weight * self.w_mul
             w = w.permute(1, 0, 2, 3)
             # probably applying a conv on w would be more efficient. also this quadruples the weight (average)?!
-            w = F.pad(w, [1, 1, 1, 1])
+            w = F.pad(w, (1, 1, 1, 1))
             w = w[:, :, 1:, 1:] + w[:, :, :-1, 1:] + w[:, :, 1:, :-1] + w[:, :, :-1, :-1]
             x = F.conv_transpose2d(x, w, stride=2, padding=(w.size(-1) - 1) // 2)
             have_convolution = True
         elif self.upscale is not None:
             x = self.upscale(x)
 
-        if not have_convolution and self.intermediate is None:
+        downscale = self.downscale
+        intermediate = self.intermediate
+        if downscale is not None and min(x.shape[2:]) >= 128:
+            w = self.weight * self.w_mul
+            w = F.pad(w, (1, 1, 1, 1))
+            # in contrast to upscale, this is a mean...
+            w = (w[:, :, 1:, 1:] + w[:, :, :-1, 1:] + w[:, :, 1:, :-1] + w[:, :, :-1, :-1]) * 0.25  # avg_pool?
+            x = F.conv2d(x, w, stride=2, padding=(w.size(-1) - 1) // 2)
+            have_convolution = True
+            downscale = None
+        elif downscale is not None:
+            assert intermediate is None
+            intermediate = downscale
+
+        if not have_convolution and intermediate is None:
             return F.conv2d(x, self.weight * self.w_mul, bias, padding=self.kernel_size // 2)
         elif not have_convolution:
             x = F.conv2d(x, self.weight * self.w_mul, None, padding=self.kernel_size // 2)
 
-        if self.intermediate is not None:
-            x = self.intermediate(x)
+        if intermediate is not None:
+            x = intermediate(x)
+
         if bias is not None:
             x = x + bias.view(1, -1, 1, 1)
         return x
