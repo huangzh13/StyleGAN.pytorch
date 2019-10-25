@@ -231,7 +231,6 @@ class GSynthesis(nn.Module):
         assert depth < self.num_layers, "Requested output depth cannot be produced"
 
         if self.structure == 'fixed':
-            # TODO
             x = self.init_block(dlatents_in[:, 0:2])
             for i, block in enumerate(self.blocks):
                 x = block(x, dlatents_in[:, 2 * (i + 1):2 * (i + 2)])

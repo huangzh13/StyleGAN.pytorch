@@ -1,3 +1,5 @@
+output_dir: 'ckp_tiny_1'
 dataset:
-  img_dir: '/home/hzh/data/img_align_celeba'
+  img_dir: '/home/hzh/data/Tiny'
   folder: False
+  resolution: 128
