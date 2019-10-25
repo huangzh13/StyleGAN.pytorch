@@ -100,6 +100,9 @@ class Discriminator(nn.Module):
         """
         super(Discriminator, self).__init__()
 
+        def nf(stage):
+            return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
+
         self.mbstd_num_features = mbstd_num_features
         self.mbstd_group_size = mbstd_group_size
         self.structure = structure
@@ -108,10 +111,7 @@ class Discriminator(nn.Module):
 
         resolution_log2 = int(np.log2(resolution))
         assert resolution == 2 ** resolution_log2 and resolution >= 4
-        self.depth = resolution_log2
-
-        def nf(stage):
-            return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
+        self.depth = resolution_log2 - 1
 
         act, gain = {'relu': (torch.relu, np.sqrt(2)),
                      'lrelu': (nn.LeakyReLU(negative_slope=0.2), np.sqrt(2))}[nonlinearity]
@@ -157,7 +157,18 @@ class Discriminator(nn.Module):
             scores_out = self.final_block(x)
         elif self.structure == 'linear':
             # TODO
-            scores_out = images_in
+            if depth > 0:
+                residual = self.from_rgb[self.depth - depth](self.temporaryDownsampler(images_in))
+                straight = self.blocks[self.depth - depth - 1](self.from_rgb[self.depth - depth - 1](images_in))
+
+                x = (alpha * straight) + ((1 - alpha) * residual)
+
+                for block in self.blocks[(self.depth - depth):]:
+                    x = block(x)
+            else:
+                x = self.from_rgb[-1](images_in)
+
+            scores_out = self.final_block(x)
         else:
             raise KeyError("Unknown structure: ", self.structure)
 
@@ -361,12 +372,12 @@ class StyleGAN:
 
         # save the images:
         save_image(samples, img_file, nrow=int(np.sqrt(len(samples))),
-                   normalize=True, scale_each=True)
+                   normalize=True, scale_each=True, pad_value=128, padding=1)
 
-    def train(self, dataset, epochs, batch_sizes, fade_in_percentage, logger, output, num_samples=4,
-              start_depth=0, num_workers=3, feedback_factor=5, checkpoint_factor=1):
+    def train(self, dataset, epochs, batch_sizes, fade_in_percentage, logger, output,
+              num_samples=16, start_depth=0, num_workers=3, feedback_factor=100, checkpoint_factor=1):
         """
-        Utility method for training the ProGAN. Note that you don't have to necessarily use this
+        Utility method for training the GAN. Note that you don't have to necessarily use this
         you can use the optimize_generator and optimize_discriminator for your own training routine.
 
         :param output:
@@ -405,17 +416,21 @@ class StyleGAN:
         # create fixed_input for debugging
         fixed_input = torch.randn(num_samples, self.latent_size).to(self.device)
 
+        # config depend on structure
         logger.info("Starting the training process ... \n")
+        if self.structure == 'fixed':
+            start_depth = self.depth - 1
+        step = 1  # counter for number of iterations
         for current_depth in range(start_depth, self.depth):
-            logger.info("Currently working on Depth: %d", current_depth)
-            # Choose training parameters and configure training ops.
-            # TODO
-
             current_res = np.power(2, current_depth + 2)
+            logger.info("Currently working on depth: %d", current_depth + 1)
             logger.info("Current resolution: %d x %d" % (current_res, current_res))
 
-            data = get_data_loader(dataset, batch_sizes[current_depth], num_workers)
             ticker = 1
+
+            # Choose training parameters and configure training ops.
+            # TODO
+            data = get_data_loader(dataset, batch_sizes[current_depth], num_workers)
 
             for epoch in range(1, epochs[current_depth] + 1):
                 start = timeit.default_timer()  # record time at the start of epoch
@@ -426,8 +441,6 @@ class StyleGAN:
 
                 fade_point = int((fade_in_percentage[current_depth] / 100)
                                  * epochs[current_depth] * total_batches)
-
-                step = 0  # counter for number of iterations
 
                 for (i, batch) in enumerate(data, 1):
                     # calculate the alpha for fading in the layers
@@ -444,11 +457,12 @@ class StyleGAN:
                     gen_loss = self.optimize_generator(gan_input, images, current_depth, alpha)
 
                     # provide a loss feedback
-                    if i % int(total_batches / feedback_factor) == 0 or i == 1:
+                    if i % int(total_batches / feedback_factor + 1) == 0 or i == 1:
                         elapsed = time.time() - global_time
-                        elapsed = str(datetime.timedelta(seconds=elapsed))
+                        elapsed = str(datetime.timedelta(seconds=elapsed)).split('.')[0]
                         logger.info(
-                            "Elapsed: [%s]  batch: %d  d_loss: %f  g_loss: %f" % (elapsed, i, dis_loss, gen_loss))
+                            "Elapsed: [%s] Step: %d  Batch: %d  D_Loss: %f  G_Loss: %f"
+                            % (elapsed, step, i, dis_loss, gen_loss))
 
                         # create a grid of samples and save it
                         # TODO
@@ -460,7 +474,8 @@ class StyleGAN:
                             self.create_grid(
                                 samples=self.gen(fixed_input, current_depth, alpha).detach() if not self.use_ema
                                 else self.gen_shadow(fixed_input, current_depth, alpha).detach(),
-                                scale_factor=1,
+                                scale_factor=int(
+                                    np.power(2, self.depth - current_depth - 1)) if self.structure == 'linear' else 1,
                                 img_file=gen_img_file,
                             )
 
@@ -468,8 +483,9 @@ class StyleGAN:
                     ticker += 1
                     step += 1
 
-                stop = timeit.default_timer()
-                logger.info("Time taken for epoch: %.3f secs.\n" % (stop - start))
+                elapsed = timeit.default_timer() - start
+                elapsed = str(datetime.timedelta(seconds=elapsed)).split('.')[0]
+                logger.info("Time taken for epoch: %s\n" % elapsed)
 
                 if epoch % checkpoint_factor == 0 or epoch == 1 or epoch == epochs[current_depth]:
                     save_dir = os.path.join(output, 'models')
@@ -482,6 +498,7 @@ class StyleGAN:
                         save_dir, "GAN_DIS_OPTIM_" + str(current_depth) + "_" + str(epoch) + ".pth")
 
                     torch.save(self.gen.state_dict(), gen_save_file)
+                    logger.info("Saving the model to: %s\n" % gen_save_file)
                     torch.save(self.dis.state_dict(), dis_save_file)
                     torch.save(self.gen_optim.state_dict(), gen_optim_save_file)
                     torch.save(self.dis_optim.state_dict(), dis_optim_save_file)
@@ -491,6 +508,9 @@ class StyleGAN:
                         gen_shadow_save_file = os.path.join(
                             save_dir, "GAN_GEN_SHADOW_" + str(current_depth) + "_" + str(epoch) + ".pth")
                         torch.save(self.gen_shadow.state_dict(), gen_shadow_save_file)
+                        logger.info("Saving the model to: %s\n" % gen_shadow_save_file)
+
+        logger.info('Training completed ...\n')
 
 
 if __name__ == '__main__':

@@ -1,5 +1,9 @@
-output_dir: 'ckp_tiny_1'
+output_dir: '/data/hzh/checkpoints/StyleGAN.pytorch/ckp_celeba_2'
+structure: 'linear'
+device_id: ('2')
 dataset:
-  img_dir: '/home/hzh/data/Tiny'
+  img_dir: '/home/hzh/data/img_align_celeba'
   folder: False
-  resolution: 128
+  resolution: 32
+sched:
+  epochs: [1, 1, 1, 1, 1, 1, 32, 64, 64]

@@ -185,11 +185,10 @@ class GSynthesis(nn.Module):
 
         self.structure = structure
 
-        if blur_filter is None:
-            blur_filter = [1, 2, 1]
-
         resolution_log2 = int(np.log2(resolution))
         assert resolution == 2 ** resolution_log2 and resolution >= 4
+        self.depth = resolution_log2 - 1
+
         self.num_layers = resolution_log2 * 2 - 2
         self.num_styles = self.num_layers if use_styles else 1
 
@@ -228,7 +227,7 @@ class GSynthesis(nn.Module):
             :return: y => output
         """
 
-        assert depth < self.num_layers, "Requested output depth cannot be produced"
+        assert depth < self.depth, "Requested output depth cannot be produced"
 
         if self.structure == 'fixed':
             x = self.init_block(dlatents_in[:, 0:2])
@@ -237,7 +236,18 @@ class GSynthesis(nn.Module):
             images_out = self.to_rgb[-1](x)
         elif self.structure == 'linear':
             # TODO
-            images_out = dlatents_in
+            x = self.init_block(dlatents_in[:, 0:2])
+
+            if depth > 0:
+                for i, block in enumerate(self.blocks[:depth - 1]):
+                    x = block(x, dlatents_in[:, 2 * (i + 1):2 * (i + 2)])
+
+                residual = self.to_rgb[depth - 1](self.temporaryUpsampler(x))
+                straight = self.to_rgb[depth](self.blocks[depth - 1](x, dlatents_in[:, 2 * depth:2 * (depth + 1)]))
+
+                images_out = (alpha * straight) + ((1 - alpha) * residual)
+            else:
+                images_out = self.to_rgb[0](x)
         else:
             raise KeyError("Unknown structure: ", self.structure)
 

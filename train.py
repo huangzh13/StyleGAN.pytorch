@@ -44,8 +44,9 @@ if __name__ == '__main__':
     if opt.device == 'cuda':
         os.environ['CUDA_VISIBLE_DEVICES'] = opt.device_id
         num_gpus = len(opt.device_id.split(','))
-        logger.info("Using {} GPUs.\n".format(num_gpus))
-    cudnn.benchmark = True
+        logger.info("Using {} GPUs.".format(num_gpus))
+        logger.info("Training on {}.\n".format(torch.cuda.get_device_name(0)))
+        cudnn.benchmark = True
     device = torch.device(opt.device)
 
     # create the dataset for training
