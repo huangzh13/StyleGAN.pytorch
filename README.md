@@ -9,6 +9,7 @@
 
 - [x] Progressive Growing Training
 - [x] Exponential Moving Average
+- [x] Equalized Learning Rate
 - [x] PixelNorm Layer
 - [x] Minibatch Standard Deviation Layer
 - [ ] Style Mixing Regularization
