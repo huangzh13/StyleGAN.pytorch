@@ -199,9 +199,10 @@ class StyleGAN:
         self.latent_size = latent_size
         self.num_channels = num_channels
         self.d_repeats = d_repeats
+        self.device = device
+
         self.use_ema = use_ema
         self.ema_decay = ema_decay
-        self.device = device
 
         # Create the Generator and the Discriminator
         self.gen = Generator(num_channels=self.num_channels,
@@ -225,7 +226,6 @@ class StyleGAN:
         self.loss = self.__setup_loss(loss)
 
         # Use of ema
-        # TODO
         if self.use_ema:
             # create a shadow copy of the generator
             self.gen_shadow = copy.deepcopy(self.gen)

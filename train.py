@@ -60,6 +60,7 @@ if __name__ == '__main__':
                          d_args=opt.model.dis,
                          g_opt_args=opt.model.g_optim,
                          d_opt_args=opt.model.d_optim,
+                         use_ema=True,
                          device=device)
 
     # train the network
