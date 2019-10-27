@@ -9,16 +9,17 @@
 
 import os
 import argparse
+import shutil
 
 import torch
 from torch.backends import cudnn
 
 from data import make_dataset
-from logger import make_logger
+from utils import make_logger, list_dir_recursively_with_ignore, copy_files_and_create_dirs
 from models.GAN import StyleGAN
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="StyleGAN pytorch re-implement.")
+    parser = argparse.ArgumentParser(description="StyleGAN pytorch implementation.")
     parser.add_argument('--config', default='./configs/sample.yaml')
     args = parser.parse_args()
 
@@ -27,18 +28,20 @@ if __name__ == '__main__':
     opt.merge_from_file(args.config)
     opt.freeze()
 
-    # set random seed
-    # TODO
-
     # make output dir
-    # if os.path.exists(output_dir):
-    #     raise KeyError("Existing path: ", output_dir)
-    # os.makedirs(output_dir)
-    os.makedirs(opt.output_dir, exist_ok=True)
+    output_dir = opt.output_dir
+    if os.path.exists(output_dir):
+        raise KeyError("Existing path: ", output_dir)
+    os.makedirs(output_dir)
+
+    # copy codes and config file
+    files = list_dir_recursively_with_ignore('.', ignores=['diagrams', 'configs'])
+    files = [(f[0], os.path.join(output_dir, "src", f[1])) for f in files]
+    copy_files_and_create_dirs(files)
+    shutil.copy2(args.config, output_dir)
 
     # logger
     logger = make_logger("project", opt.output_dir, 'log')
-    # logger.info('Random seed is {}'.format(SEED))
 
     # device
     if opt.device == 'cuda':
@@ -69,6 +72,8 @@ if __name__ == '__main__':
                     batch_sizes=opt.sched.batch_sizes,
                     fade_in_percentage=opt.sched.fade_in_percentage,
                     logger=logger,
-                    output=opt.output_dir)
+                    output=output_dir,
+                    feedback_factor=10,
+                    checkpoint_factor=10)
 
     print('Done.')

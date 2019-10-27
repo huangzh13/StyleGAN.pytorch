@@ -39,7 +39,7 @@ def get_data_loader(dataset, batch_size, num_workers):
         shuffle=True,
         num_workers=num_workers,
         drop_last=True,
-        # pin_memory=True
+        pin_memory=True
     )
 
     return dl

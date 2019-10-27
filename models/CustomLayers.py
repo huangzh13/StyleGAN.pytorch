@@ -1,9 +1,8 @@
 """
 -------------------------------------------------
    File Name:    CustomLayers.py
-   Author:       Zhonghao Huang
    Date:         2019/10/17
-   Description:
+   Description:  Copy from: https://github.com/lernapparat/lernapparat
 -------------------------------------------------
 """
 
@@ -147,7 +146,7 @@ class EqualizedConv2d(nn.Module):
             w = self.weight * self.w_mul
             w = w.permute(1, 0, 2, 3)
             # probably applying a conv on w would be more efficient. also this quadruples the weight (average)?!
-            w = F.pad(w, (1, 1, 1, 1))
+            w = F.pad(w, [1, 1, 1, 1])
             w = w[:, :, 1:, 1:] + w[:, :, :-1, 1:] + w[:, :, 1:, :-1] + w[:, :, :-1, :-1]
             x = F.conv_transpose2d(x, w, stride=2, padding=(w.size(-1) - 1) // 2)
             have_convolution = True
@@ -158,7 +157,7 @@ class EqualizedConv2d(nn.Module):
         intermediate = self.intermediate
         if downscale is not None and min(x.shape[2:]) >= 128:
             w = self.weight * self.w_mul
-            w = F.pad(w, (1, 1, 1, 1))
+            w = F.pad(w, [1, 1, 1, 1])
             # in contrast to upscale, this is a mean...
             w = (w[:, :, 1:, 1:] + w[:, :, :-1, 1:] + w[:, :, 1:, :-1] + w[:, :, :-1, :-1]) * 0.25  # avg_pool?
             x = F.conv2d(x, w, stride=2, padding=(w.size(-1) - 1) // 2)
@@ -306,33 +305,15 @@ class StddevLayer(nn.Module):
         return z
 
 
-# function to calculate the Exponential moving averages for the Generator weights
-# This function updates the exponential average weights based on the current training
-def update_average(model_tgt, model_src, beta):
-    """
-    update the model_target using exponential moving averages
-    :param model_tgt: target model
-    :param model_src: source model
-    :param beta: value of decay beta
-    :return: None (updates the target model)
-    """
+class Truncation(nn.Module):
+    def __init__(self, avg_latent, max_layer=8, threshold=0.7):
+        super().__init__()
+        self.max_layer = max_layer
+        self.threshold = threshold
+        self.register_buffer('avg_latent', avg_latent)
 
-    # utility function for toggling the gradient requirements of the models
-    def toggle_grad(model, requires_grad):
-        for p in model.parameters():
-            p.requires_grad_(requires_grad)
-
-    # turn off gradient calculation
-    toggle_grad(model_tgt, False)
-    toggle_grad(model_src, False)
-
-    param_dict_src = dict(model_src.named_parameters())
-
-    for p_name, p_tgt in model_tgt.named_parameters():
-        p_src = param_dict_src[p_name]
-        assert (p_src is not p_tgt)
-        p_tgt.copy_(beta * p_tgt + (1. - beta) * p_src)
-
-    # turn back on the gradient calculation
-    toggle_grad(model_tgt, True)
-    toggle_grad(model_src, True)
+    def forward(self, x):
+        assert x.dim() == 3
+        interp = torch.lerp(self.avg_latent, x, self.threshold)
+        do_trunc = (torch.arange(x.size(1)) < self.max_layer).view(1, -1, 1)
+        return torch.where(do_trunc, interp, x)

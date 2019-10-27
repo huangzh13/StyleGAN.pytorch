@@ -3,7 +3,7 @@
    File Name:    GAN.py
    Author:       Zhonghao Huang
    Date:         2019/10/17
-   Description:
+   Description:  Modified from: https://github.com/akanimax/pro_gan_pytorch
 -------------------------------------------------
 """
 
@@ -12,17 +12,179 @@ import datetime
 import time
 import timeit
 import copy
-
+from collections import OrderedDict
 import numpy as np
+
 import torch
 import torch.nn as nn
-from torch.nn import AvgPool2d
-from torch.optim import Adam
+from torch.nn.functional import interpolate
 
 from data import get_data_loader
-from models.Blocks import GMapping, GSynthesis, DiscriminatorTop, DiscriminatorBlock
-from models.CustomLayers import EqualizedConv2d, update_average
-import models.Losses as losses
+from models import update_average
+from models.Blocks import DiscriminatorTop, DiscriminatorBlock, InputBlock, GSynthesisBlock
+from models.CustomLayers import EqualizedConv2d, PixelNormLayer, EqualizedLinear
+import models.Losses as Losses
+
+
+class GMapping(nn.Module):
+    """
+        Mapping network used in the StyleGAN paper.
+    """
+
+    def __init__(self,
+                 latent_size=512,  # Latent vector(Z) dimensionality.
+                 # label_size=0,  # Label dimensionality, 0 if no labels.
+                 dlatent_size=512,  # Disentangled latent (W) dimensionality.
+                 dlatent_broadcast=None,
+                 mapping_layers=8,  # Number of mapping layers.
+                 mapping_fmaps=512,  # Number of activations in the mapping layers.
+                 mapping_lrmul=0.01,  # Learning rate multiplier for the mapping layers.
+                 mapping_nonlinearity='lrelu',  # Activation function: 'relu', 'lrelu'.
+                 use_wscale=True,  # Enable equalized learning rate?
+                 normalize_latents=True,  # Normalize latent vectors (Z) before feeding them to the mapping layers?
+                 # dtype='float32',  # Data type to use for activations and outputs.
+                 **kwargs):  # Ignore unrecognized keyword args.
+
+        super().__init__()
+
+        self.latent_size = latent_size
+        self.mapping_fmaps = mapping_fmaps
+        self.dlatent_size = dlatent_size
+        # Output disentangled latent (W) as [mini_batch, dlatent_size] or [mini_batch, dlatent_broadcast, dlatent_size].
+        self.dlatent_broadcast = dlatent_broadcast
+
+        # Activation function.
+        act, gain = {'relu': (torch.relu, np.sqrt(2)),
+                     'lrelu': (nn.LeakyReLU(negative_slope=0.2), np.sqrt(2))}[mapping_nonlinearity]
+
+        # Embed labels and concatenate them with latents.
+        # TODO
+
+        layers = []
+        # Normalize latents.
+        if normalize_latents:
+            layers.append(('pixel_norm', PixelNormLayer()))
+
+        # Mapping layers. (apply_bias?)
+        layers.append(('dense0', EqualizedLinear(self.latent_size, self.mapping_fmaps,
+                                                 gain=gain, lrmul=mapping_lrmul, use_wscale=use_wscale)))
+        layers.append(('dense0_act', act))
+        for layer_idx in range(1, mapping_layers):
+            fmaps_in = self.mapping_fmaps
+            fmaps_out = self.dlatent_size if layer_idx == mapping_layers - 1 else self.mapping_fmaps
+            layers.append(
+                ('dense{:d}'.format(layer_idx),
+                 EqualizedLinear(fmaps_in, fmaps_out, gain=gain, lrmul=mapping_lrmul, use_wscale=use_wscale)))
+            layers.append(('dense{:d}_act'.format(layer_idx), act))
+
+        # Output.
+        self.map = nn.Sequential(OrderedDict(layers))
+
+    def forward(self, x):
+        # First input: Latent vectors (Z) [mini_batch, latent_size].
+        x = self.map(x)
+        # Broadcast -> batch_size * dlatent_broadcast * dlatent_size
+        if self.dlatent_broadcast is not None:
+            x = x.unsqueeze(1).expand(-1, self.dlatent_broadcast, -1)
+        return x
+
+
+class GSynthesis(nn.Module):
+    """
+        Synthesis network used in the StyleGAN paper.
+    """
+
+    def __init__(self,
+                 dlatent_size=512,  # Disentangled latent (W) dimensionality.
+                 num_channels=3,  # Number of output color channels.
+                 resolution=1024,  # Output resolution.
+                 fmap_base=8192,  # Overall multiplier for the number of feature maps.
+                 fmap_decay=1.0,  # log2 feature map reduction when doubling the resolution.
+                 fmap_max=512,  # Maximum number of feature maps in any layer.
+                 use_styles=True,  # Enable style inputs?
+                 const_input_layer=True,  # First layer is a learned constant?
+                 use_noise=True,  # Enable noise inputs?
+                 nonlinearity='lrelu',  # Activation function: 'relu', 'lrelu'
+                 use_wscale=True,  # Enable equalized learning rate?
+                 use_pixel_norm=False,  # Enable pixelwise feature vector normalization?
+                 use_instance_norm=True,  # Enable instance normalization?
+                 blur_filter=None,  # Low-pass filter to apply when resampling activations. None = no filtering.
+                 structure='linear',
+                 **kwargs):  # Ignore unrecognized keyword args.
+
+        super().__init__()
+
+        def nf(stage):
+            return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
+
+        self.structure = structure
+
+        resolution_log2 = int(np.log2(resolution))
+        assert resolution == 2 ** resolution_log2 and resolution >= 4
+        self.depth = resolution_log2 - 1
+
+        self.num_layers = resolution_log2 * 2 - 2
+        self.num_styles = self.num_layers if use_styles else 1
+
+        act, gain = {'relu': (torch.relu, np.sqrt(2)),
+                     'lrelu': (nn.LeakyReLU(negative_slope=0.2), np.sqrt(2))}[nonlinearity]
+
+        # Early layers.
+        self.init_block = InputBlock(nf(1), dlatent_size, const_input_layer, gain, use_wscale,
+                                     use_noise, use_pixel_norm, use_instance_norm, use_styles, act)
+        # create the ToRGB layers for various outputs
+        rgb_converters = [EqualizedConv2d(nf(1), num_channels, 1, gain=1, use_wscale=use_wscale)]
+
+        # Building blocks for remaining layers.
+        blocks = []
+        for res in range(3, resolution_log2 + 1):
+            last_channels = nf(res - 2)
+            channels = nf(res - 1)
+            # name = '{s}x{s}'.format(s=2 ** res)
+            blocks.append(GSynthesisBlock(last_channels, channels, blur_filter, dlatent_size, gain, use_wscale,
+                                          use_noise, use_pixel_norm, use_instance_norm, use_styles, act))
+            rgb_converters.append(EqualizedConv2d(channels, num_channels, 1, gain=1, use_wscale=use_wscale))
+
+        self.blocks = nn.ModuleList(blocks)
+        self.to_rgb = nn.ModuleList(rgb_converters)
+
+        # register the temporary upsampler
+        self.temporaryUpsampler = lambda x: interpolate(x, scale_factor=2)
+
+    def forward(self, dlatents_in, depth=0, alpha=0., labels_in=None):
+        """
+            forward pass of the Generator
+            :param dlatents_in: Input: Disentangled latents (W) [mini_batch, num_layers, dlatent_size].
+            :param labels_in:
+            :param depth: current depth from where output is required
+            :param alpha: value of alpha for fade-in effect
+            :return: y => output
+        """
+
+        assert depth < self.depth, "Requested output depth cannot be produced"
+
+        if self.structure == 'fixed':
+            x = self.init_block(dlatents_in[:, 0:2])
+            for i, block in enumerate(self.blocks):
+                x = block(x, dlatents_in[:, 2 * (i + 1):2 * (i + 2)])
+            images_out = self.to_rgb[-1](x)
+        elif self.structure == 'linear':
+            x = self.init_block(dlatents_in[:, 0:2])
+
+            if depth > 0:
+                for i, block in enumerate(self.blocks[:depth - 1]):
+                    x = block(x, dlatents_in[:, 2 * (i + 1):2 * (i + 2)])
+
+                residual = self.to_rgb[depth - 1](self.temporaryUpsampler(x))
+                straight = self.to_rgb[depth](self.blocks[depth - 1](x, dlatents_in[:, 2 * depth:2 * (depth + 1)]))
+
+                images_out = (alpha * straight) + ((1 - alpha) * residual)
+            else:
+                images_out = self.to_rgb[0](x)
+        else:
+            raise KeyError("Unknown structure: ", self.structure)
+
+        return images_out
 
 
 class Generator(nn.Module):
@@ -137,7 +299,7 @@ class Discriminator(nn.Module):
         self.from_rgb = nn.ModuleList(from_rgb)
 
         # register the temporary downSampler
-        self.temporaryDownsampler = AvgPool2d(2)
+        self.temporaryDownsampler = nn.AvgPool2d(2)
 
     def forward(self, images_in, depth, alpha=1., labels_in=None):
         """
@@ -156,7 +318,6 @@ class Discriminator(nn.Module):
                 x = block(x)
             scores_out = self.final_block(x)
         elif self.structure == 'linear':
-            # TODO
             if depth > 0:
                 residual = self.from_rgb[self.depth - depth](self.temporaryDownsampler(images_in))
                 straight = self.blocks[self.depth - depth - 1](self.from_rgb[self.depth - depth - 1](images_in))
@@ -235,28 +396,28 @@ class StyleGAN:
             self.ema_updater(self.gen_shadow, self.gen, beta=0)
 
     def __setup_gen_optim(self, learning_rate, beta_1, beta_2, eps):
-        self.gen_optim = Adam(self.gen.parameters(), lr=learning_rate, betas=(beta_1, beta_2), eps=eps)
+        self.gen_optim = torch.optim.Adam(self.gen.parameters(), lr=learning_rate, betas=(beta_1, beta_2), eps=eps)
 
     def __setup_dis_optim(self, learning_rate, beta_1, beta_2, eps):
-        self.dis_optim = Adam(self.dis.parameters(), lr=learning_rate, betas=(beta_1, beta_2), eps=eps)
+        self.dis_optim = torch.optim.Adam(self.dis.parameters(), lr=learning_rate, betas=(beta_1, beta_2), eps=eps)
 
     def __setup_loss(self, loss):
         if isinstance(loss, str):
             loss = loss.lower()  # lowercase the string
 
             if loss == "standard-gan":
-                loss = losses.StandardGAN(self.dis)
+                loss = Losses.StandardGAN(self.dis)
 
             elif loss == "hinge":
-                loss = losses.HingeGAN(self.dis)
+                loss = Losses.HingeGAN(self.dis)
 
             elif loss == "relativistic-hinge":
-                loss = losses.RelativisticAverageHingeGAN(self.dis)
+                loss = Losses.RelativisticAverageHingeGAN(self.dis)
 
             else:
                 raise ValueError("Unknown loss function requested")
 
-        elif not isinstance(loss, losses.GANLoss):
+        elif not isinstance(loss, Losses.GANLoss):
             raise ValueError("loss is neither an instance of GANLoss nor a string")
 
         return loss
@@ -465,7 +626,6 @@ class StyleGAN:
                             % (elapsed, step, i, dis_loss, gen_loss))
 
                         # create a grid of samples and save it
-                        # TODO
                         os.makedirs(os.path.join(output, 'samples'), exist_ok=True)
                         gen_img_file = os.path.join(output, 'samples', "gen_" + str(current_depth)
                                                     + "_" + str(epoch) + "_" + str(i) + ".png")

@@ -1,0 +1,9 @@
+output_dir: '/data/hzh/checkpoints/StyleGAN.pytorch/ckp_race'
+structure: 'linear'
+device_id: ('1')
+dataset:
+  img_dir: '/data/hzh/datasets/race_chinese_girl'
+  folder: False
+  resolution: 128
+sched:
+  epochs: [40,80,80,80,80,160]
