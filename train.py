@@ -21,6 +21,18 @@ from models.GAN import StyleGAN
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="StyleGAN pytorch implementation.")
     parser.add_argument('--config', default='./configs/sample.yaml')
+    parser.add_argument("--start_depth", action="store", type=int, default=0,
+                        help="Starting depth for training the network")
+    parser.add_argument("--generator_file", action="store", type=str, default=None,
+                        help="pretrained Generator file (compatible with my code)")
+    parser.add_argument("--gen_shadow_file", action="store", type=str, default=None,
+                        help="pretrained gen_shadow file")
+    parser.add_argument("--discriminator_file", action="store", type=str, default=None,
+                        help="pretrained Discriminator file (compatible with my code)")
+    parser.add_argument("--gen_optim_file", action="store", type=str, default=None,
+                        help="saved state of generator optimizer")
+    parser.add_argument("--dis_optim_file", action="store", type=str, default=None,
+                        help="saved_state of discriminator optimizer")
     args = parser.parse_args()
 
     from config import cfg as opt
@@ -55,7 +67,7 @@ if __name__ == '__main__':
     # create the dataset for training
     dataset = make_dataset(opt.dataset)
 
-    # Init the network
+    # init the network
     style_gan = StyleGAN(structure=opt.structure,
                          resolution=opt.dataset.resolution,
                          num_channels=opt.dataset.channels,
@@ -65,6 +77,27 @@ if __name__ == '__main__':
                          d_opt_args=opt.model.d_optim,
                          use_ema=True,
                          device=device)
+
+    # Resume training from checkpoints
+    if args.generator_file is not None:
+        print("Loading generator from:", args.generator_file)
+        style_gan.gen.load_state_dict(torch.load(args.generator_file))
+
+    if args.discriminator_file is not None:
+        print("Loading discriminator from:", args.discriminator_file)
+        style_gan.dis.load_state_dict(torch.load(args.discriminator_file))
+
+    if args.gen_shadow_file is not None and opt.use_ema:
+        print("Loading shadow generator from:", args.gen_shadow_file)
+        style_gan.gen_shadow.load_state_dict(torch.load(args.gen_shadow_file))
+
+    if args.gen_optim_file is not None:
+        print("Loading generator optimizer from:", args.gen_optim_file)
+        style_gan.gen_optim.load_state_dict(torch.load(args.gen_optim_file))
+
+    if args.dis_optim_file is not None:
+        print("Loading discriminator optimizer from:", args.dis_optim_file)
+        style_gan.dis_optim.load_state_dict(torch.load(args.dis_optim_file))
 
     # train the network
     style_gan.train(dataset=dataset,

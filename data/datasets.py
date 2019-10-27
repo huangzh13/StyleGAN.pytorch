@@ -142,7 +142,7 @@ class FoldersDistributedDataset(Dataset):
             img = np.load(img_name)
             img = Image.fromarray(img.squeeze(0).transpose(1, 2, 0))
         else:
-            img = Image.open(img_name)
+            img = Image.open(img_name).convert('RGB')
 
         # apply the transforms on the image
         if self.transform is not None:
