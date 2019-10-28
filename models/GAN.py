@@ -3,7 +3,10 @@
    File Name:    GAN.py
    Author:       Zhonghao Huang
    Date:         2019/10/17
-   Description:  Modified from: https://github.com/akanimax/pro_gan_pytorch
+   Description:  Modified from:
+                 https://github.com/akanimax/pro_gan_pytorch
+                 https://github.com/lernapparat/lernapparat
+                 https://github.com/NVlabs/stylegan
 -------------------------------------------------
 """
 
@@ -12,38 +15,40 @@ import datetime
 import time
 import timeit
 import copy
-from collections import OrderedDict
 import numpy as np
+from collections import OrderedDict
 
 import torch
 import torch.nn as nn
 from torch.nn.functional import interpolate
 
+import models.Losses as Losses
 from data import get_data_loader
 from models import update_average
 from models.Blocks import DiscriminatorTop, DiscriminatorBlock, InputBlock, GSynthesisBlock
 from models.CustomLayers import EqualizedConv2d, PixelNormLayer, EqualizedLinear
-import models.Losses as Losses
 
 
 class GMapping(nn.Module):
-    """
-        Mapping network used in the StyleGAN paper.
-    """
 
-    def __init__(self,
-                 latent_size=512,  # Latent vector(Z) dimensionality.
-                 # label_size=0,  # Label dimensionality, 0 if no labels.
-                 dlatent_size=512,  # Disentangled latent (W) dimensionality.
-                 dlatent_broadcast=None,
-                 mapping_layers=8,  # Number of mapping layers.
-                 mapping_fmaps=512,  # Number of activations in the mapping layers.
-                 mapping_lrmul=0.01,  # Learning rate multiplier for the mapping layers.
-                 mapping_nonlinearity='lrelu',  # Activation function: 'relu', 'lrelu'.
-                 use_wscale=True,  # Enable equalized learning rate?
-                 normalize_latents=True,  # Normalize latent vectors (Z) before feeding them to the mapping layers?
-                 # dtype='float32',  # Data type to use for activations and outputs.
-                 **kwargs):  # Ignore unrecognized keyword args.
+    def __init__(self, latent_size=512, dlatent_size=512, dlatent_broadcast=None,
+                 mapping_layers=8, mapping_fmaps=512, mapping_lrmul=0.01, mapping_nonlinearity='lrelu',
+                 use_wscale=True, normalize_latents=True, **kwargs):
+        """
+        Mapping network used in the StyleGAN paper.
+
+        :param latent_size: Latent vector(Z) dimensionality.
+        # :param label_size: Label dimensionality, 0 if no labels.
+        :param dlatent_size: Disentangled latent (W) dimensionality.
+        :param dlatent_broadcast:
+        :param mapping_layers: Number of mapping layers.
+        :param mapping_fmaps: Number of activations in the mapping layers.
+        :param mapping_lrmul: Learning rate multiplier for the mapping layers.
+        :param mapping_nonlinearity: Activation function: 'relu', 'lrelu'.
+        :param use_wscale: Enable equalized learning rate?
+        :param normalize_latents: Normalize latent vectors (Z) before feeding them to the mapping layers?
+        :param kwargs: Ignore unrecognized keyword args.
+        """
 
         super().__init__()
 
@@ -90,27 +95,32 @@ class GMapping(nn.Module):
 
 
 class GSynthesis(nn.Module):
-    """
-        Synthesis network used in the StyleGAN paper.
-    """
 
-    def __init__(self,
-                 dlatent_size=512,  # Disentangled latent (W) dimensionality.
-                 num_channels=3,  # Number of output color channels.
-                 resolution=1024,  # Output resolution.
-                 fmap_base=8192,  # Overall multiplier for the number of feature maps.
-                 fmap_decay=1.0,  # log2 feature map reduction when doubling the resolution.
-                 fmap_max=512,  # Maximum number of feature maps in any layer.
-                 use_styles=True,  # Enable style inputs?
-                 const_input_layer=True,  # First layer is a learned constant?
-                 use_noise=True,  # Enable noise inputs?
-                 nonlinearity='lrelu',  # Activation function: 'relu', 'lrelu'
-                 use_wscale=True,  # Enable equalized learning rate?
-                 use_pixel_norm=False,  # Enable pixelwise feature vector normalization?
-                 use_instance_norm=True,  # Enable instance normalization?
-                 blur_filter=None,  # Low-pass filter to apply when resampling activations. None = no filtering.
-                 structure='linear',
-                 **kwargs):  # Ignore unrecognized keyword args.
+    def __init__(self, dlatent_size=512, num_channels=3, resolution=1024,
+                 fmap_base=8192, fmap_decay=1.0, fmap_max=512,
+                 use_styles=True, const_input_layer=True, use_noise=True, nonlinearity='lrelu',
+                 use_wscale=True, use_pixel_norm=False, use_instance_norm=True, blur_filter=None,
+                 structure='linear', **kwargs):
+        """
+        Synthesis network used in the StyleGAN paper.
+
+        :param dlatent_size: Disentangled latent (W) dimensionality.
+        :param num_channels: Number of output color channels.
+        :param resolution: Output resolution.
+        :param fmap_base: Overall multiplier for the number of feature maps.
+        :param fmap_decay: log2 feature map reduction when doubling the resolution.
+        :param fmap_max: Maximum number of feature maps in any layer.
+        :param use_styles: Enable style inputs?
+        :param const_input_layer: First layer is a learned constant?
+        :param use_noise: Enable noise inputs?
+        :param nonlinearity: Activation function: 'relu', 'lrelu'
+        :param use_wscale: Enable equalized learning rate?
+        :param use_pixel_norm: Enable pixelwise feature vector normalization?
+        :param use_instance_norm: Enable instance normalization?
+        :param blur_filter: Low-pass filter to apply when resampling activations. None = no filtering.
+        :param structure:
+        :param kwargs: Ignore unrecognized keyword args.
+        """
 
         super().__init__()
 
@@ -188,18 +198,13 @@ class GSynthesis(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self,
-                 resolution,
-                 truncation_psi=0.7,
-                 truncation_cutoff=8,
-                 truncation_psi_val=None,
-                 truncation_cutoff_val=None,
-                 dlatent_avg_beta=0.995,
-                 style_mixing_prob=0.9,
-                 **kwargs):
+
+    def __init__(self, resolution, truncation_psi=0.7, truncation_cutoff=8, truncation_psi_val=None,
+                 truncation_cutoff_val=None, dlatent_avg_beta=0.995, style_mixing_prob=0.9, **kwargs):
         """
         # Style-based generator used in the StyleGAN paper.
         # Composed of two sub-networks (G_mapping and G_synthesis).
+
         :param truncation_psi: Style strength multiplier for the truncation trick. None = disable.
         :param truncation_cutoff: Number of layers for which to apply the truncation trick. None = disable.
         :param truncation_psi_val: Value for truncation_psi to use during validation.
@@ -241,11 +246,13 @@ class Generator(nn.Module):
 
 
 class Discriminator(nn.Module):
+
     def __init__(self, resolution, num_channels=3, fmap_base=8192, fmap_decay=1.0, fmap_max=512,
                  nonlinearity='lrelu', use_wscale=True, mbstd_group_size=4, mbstd_num_features=1,
                  blur_filter=None, structure='linear', **kwargs):
         """
         Discriminator used in the StyleGAN paper.
+
         :param num_channels: Number of input color channels. Overridden based on dataset.
         :param resolution: Input resolution. Overridden based on dataset.
         # label_size=0,  # Dimensionality of the labels, 0 if no labels. Overridden based on dataset.
@@ -337,13 +344,14 @@ class Discriminator(nn.Module):
 
 
 class StyleGAN:
-    """ Wrapper around the Generator and the Discriminator """
 
     def __init__(self, structure, resolution, num_channels,
                  g_args, d_args, g_opt_args, d_opt_args, loss="relativistic-hinge",
                  latent_size=512, d_repeats=1, use_ema=False, ema_decay=0.999,
                  device=torch.device("cpu")):
         """
+        Wrapper around the Generator and the Discriminator.
+
         :param latent_size:
         :param d_repeats:
         :param loss:
@@ -426,6 +434,7 @@ class StyleGAN:
         """
         private helper for down_sampling the original images in order to facilitate the
         progressive growing of the layers.
+
         :param real_batch: batch of real samples
         :param depth: depth at which training is going on
         :param alpha: current value of the fade-in alpha
@@ -458,6 +467,7 @@ class StyleGAN:
     def optimize_discriminator(self, noise, real_batch, depth, alpha):
         """
         performs one step of weight update on discriminator using the batch of data
+
         :param noise: input noise of sample generation
         :param real_batch: real samples batch
         :param depth: current depth of optimization
@@ -519,6 +529,7 @@ class StyleGAN:
     def create_grid(samples, scale_factor, img_file):
         """
         utility function to create a grid of GAN samples
+
         :param samples: generated samples for storing
         :param scale_factor: factor for upscaling the image
         :param img_file: name of file to write

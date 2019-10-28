@@ -80,23 +80,25 @@ if __name__ == '__main__':
 
     # Resume training from checkpoints
     if args.generator_file is not None:
-        print("Loading generator from:", args.generator_file)
+        logger.info("Loading generator from:", args.generator_file)
         style_gan.gen.load_state_dict(torch.load(args.generator_file))
+    else:
+        logger.info("Training from scratch...")
 
     if args.discriminator_file is not None:
-        print("Loading discriminator from:", args.discriminator_file)
+        logger.info("Loading discriminator from:", args.discriminator_file)
         style_gan.dis.load_state_dict(torch.load(args.discriminator_file))
 
     if args.gen_shadow_file is not None and opt.use_ema:
-        print("Loading shadow generator from:", args.gen_shadow_file)
+        logger.info("Loading shadow generator from:", args.gen_shadow_file)
         style_gan.gen_shadow.load_state_dict(torch.load(args.gen_shadow_file))
 
     if args.gen_optim_file is not None:
-        print("Loading generator optimizer from:", args.gen_optim_file)
+        logger.info("Loading generator optimizer from:", args.gen_optim_file)
         style_gan.gen_optim.load_state_dict(torch.load(args.gen_optim_file))
 
     if args.dis_optim_file is not None:
-        print("Loading discriminator optimizer from:", args.dis_optim_file)
+        logger.info("Loading discriminator optimizer from:", args.dis_optim_file)
         style_gan.dis_optim.load_state_dict(torch.load(args.dis_optim_file))
 
     # train the network
@@ -108,5 +110,3 @@ if __name__ == '__main__':
                     output=output_dir,
                     feedback_factor=10,
                     checkpoint_factor=10)
-
-    print('Done.')
