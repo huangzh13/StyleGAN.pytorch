@@ -15,7 +15,6 @@
 - [x] Equalized Learning Rate
 - [x] PixelNorm Layer
 - [x] Minibatch Standard Deviation Layer
-- [x] Stochastic Variation
 - [ ] Style Mixing Regularization
 - [ ] Truncation Trick   
 - [ ] Multi-GPU Training
@@ -25,10 +24,23 @@
 ## How to use
 
 ### Requirements
+- yacs
+- tqdm
+- numpy
+- torch
+- torchvision
 
 ### Running the training script:
+Train on CelebA from scratch:
+```shell script
+python train.py --config configs/sample.yaml
+```
 
 ### Using trained model:
+Resume training from a checkpoint (start form 128x128):
+```shell script
+python train.py --config config/sample.yaml --start_depth 5 --generator_file [] [--gen_shadow_file] --discriminator_file [] --gen_optim_file [] --dis_optim_file []
+```
 
 ## Thanks
 

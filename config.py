@@ -12,9 +12,20 @@ from yacs.config import CfgNode as CN
 cfg = CN()
 
 cfg.output_dir = ''
-cfg.structure = 'fixed'
 cfg.device = 'cuda'
 cfg.device_id = '3'
+
+cfg.structure = 'fixed'
+cfg.loss = "relativistic-hinge"
+cfg.drift = 0.001
+cfg.d_repeats = 1
+cfg.use_ema = True
+cfg.ema_decay = 0.999
+
+cfg.num_works = 4
+cfg.num_samples = 36
+cfg.feedback_factor = 10
+cfg.checkpoint_factor = 10
 
 # ---------------------------------------------------------------------------- #
 # Options for scheduler
@@ -24,9 +35,11 @@ cfg.sched = CN()
 # example for {depth:9,resolution:1024}
 # res --> [4,8,16,32,64,128,256,512,1024]
 cfg.sched.epochs = [4, 4, 4, 4, 8, 16, 32, 64, 64]
+# batches for oen 1080Ti with 11G memory
 cfg.sched.batch_sizes = [128, 128, 128, 64, 32, 16, 8, 4, 2]
 cfg.sched.fade_in_percentage = [50, 50, 50, 50, 50, 50, 50, 50, 50]
 
+# TODO
 # cfg.sched.G_lrate_dict = {128: 0.0015, 256: 0.002, 512: 0.003, 1024: 0.003}
 # cfg.sched.D_lrate_dict = {128: 0.0015, 256: 0.002, 512: 0.003, 1024: 0.003}
 
@@ -45,6 +58,7 @@ cfg.model = CN()
 # ---------------------------------------------------------------------------- #
 cfg.model.gen = CN()
 cfg.model.gen.latent_size = 512
+# 8 in original paper
 cfg.model.gen.mapping_layers = 4
 
 # ---------------------------------------------------------------------------- #

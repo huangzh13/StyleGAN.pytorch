@@ -40,7 +40,8 @@ class GMapping(nn.Module):
         :param latent_size: Latent vector(Z) dimensionality.
         # :param label_size: Label dimensionality, 0 if no labels.
         :param dlatent_size: Disentangled latent (W) dimensionality.
-        :param dlatent_broadcast:
+        :param dlatent_broadcast: Output disentangled latent (W) as [minibatch, dlatent_size]
+                                  or [minibatch, dlatent_broadcast, dlatent_size].
         :param mapping_layers: Number of mapping layers.
         :param mapping_fmaps: Number of activations in the mapping layers.
         :param mapping_lrmul: Learning rate multiplier for the mapping layers.
@@ -55,7 +56,6 @@ class GMapping(nn.Module):
         self.latent_size = latent_size
         self.mapping_fmaps = mapping_fmaps
         self.dlatent_size = dlatent_size
-        # Output disentangled latent (W) as [mini_batch, dlatent_size] or [mini_batch, dlatent_broadcast, dlatent_size].
         self.dlatent_broadcast = dlatent_broadcast
 
         # Activation function.
@@ -88,6 +88,7 @@ class GMapping(nn.Module):
     def forward(self, x):
         # First input: Latent vectors (Z) [mini_batch, latent_size].
         x = self.map(x)
+
         # Broadcast -> batch_size * dlatent_broadcast * dlatent_size
         if self.dlatent_broadcast is not None:
             x = x.unsqueeze(1).expand(-1, self.dlatent_broadcast, -1)
@@ -113,12 +114,14 @@ class GSynthesis(nn.Module):
         :param use_styles: Enable style inputs?
         :param const_input_layer: First layer is a learned constant?
         :param use_noise: Enable noise inputs?
+        # :param randomize_noise: True = randomize noise inputs every time (non-deterministic),
+                                  False = read noise inputs from variables.
         :param nonlinearity: Activation function: 'relu', 'lrelu'
         :param use_wscale: Enable equalized learning rate?
-        :param use_pixel_norm: Enable pixelwise feature vector normalization?
+        :param use_pixel_norm: Enable pixel_wise feature vector normalization?
         :param use_instance_norm: Enable instance normalization?
         :param blur_filter: Low-pass filter to apply when resampling activations. None = no filtering.
-        :param structure:
+        :param structure: 'fixed' = no progressive growing, 'linear' = human-readable
         :param kwargs: Ignore unrecognized keyword args.
         """
 
@@ -227,8 +230,8 @@ class Generator(nn.Module):
     def forward(self, latents_in, depth, alpha, labels_in=None):
         """
         :param latents_in: First input: Latent vectors (Z) [mini_batch, latent_size].
-        :param depth:
-        :param alpha:
+        :param depth: current depth from where output is required
+        :param alpha: value of alpha for fade-in effect
         :param labels_in: Second input: Conditioning labels [mini_batch, label_size].
         :return:
         """
@@ -291,7 +294,8 @@ class Discriminator(nn.Module):
         for res in range(resolution_log2, 2, -1):
             # name = '{s}x{s}'.format(s=2 ** res)
             blocks.append(DiscriminatorBlock(nf(res - 1), nf(res - 2),
-                                             gain=gain, use_wscale=use_wscale, activation_layer=act))
+                                             gain=gain, use_wscale=use_wscale, activation_layer=act,
+                                             blur_kernel=blur_filter))
             # create the fromRGB layers for various inputs:
             from_rgb.append(EqualizedConv2d(num_channels, nf(res - 1), kernel_size=1,
                                             gain=gain, use_wscale=use_wscale))
@@ -328,7 +332,6 @@ class Discriminator(nn.Module):
             if depth > 0:
                 residual = self.from_rgb[self.depth - depth](self.temporaryDownsampler(images_in))
                 straight = self.blocks[self.depth - depth - 1](self.from_rgb[self.depth - depth - 1](images_in))
-
                 x = (alpha * straight) + ((1 - alpha) * residual)
 
                 for block in self.blocks[(self.depth - depth):]:
@@ -345,41 +348,50 @@ class Discriminator(nn.Module):
 
 class StyleGAN:
 
-    def __init__(self, structure, resolution, num_channels,
-                 g_args, d_args, g_opt_args, d_opt_args, loss="relativistic-hinge",
-                 latent_size=512, d_repeats=1, use_ema=False, ema_decay=0.999,
-                 device=torch.device("cpu")):
+    def __init__(self, structure, resolution, num_channels, latent_size,
+                 g_args, d_args, g_opt_args, d_opt_args, loss="relativistic-hinge", drift=0.001,
+                 d_repeats=1, use_ema=False, ema_decay=0.999, device=torch.device("cpu")):
         """
         Wrapper around the Generator and the Discriminator.
 
-        :param latent_size:
-        :param d_repeats:
-        :param loss:
-        :param use_ema:
-        :param ema_decay:
-        :param device:
+        :param structure: 'fixed' = no progressive growing, 'linear' = human-readable
+        :param resolution: Input resolution. Overridden based on dataset.
+        :param num_channels: Number of input color channels. Overridden based on dataset.
+        :param latent_size: Latent size of the manifold used by the GAN
+        :param g_args: Options for generator network.
+        :param d_args: Options for discriminator network.
+        :param g_opt_args: Options for generator optimizer.
+        :param d_opt_args: Options for discriminator optimizer.
+        :param loss: the loss function to be used
+                     Can either be a string =>
+                          ["wgan-gp", "wgan", "lsgan", "lsgan-with-sigmoid",
+                          "hinge", "standard-gan" or "relativistic-hinge"]
+                     Or an instance of GANLoss
+        :param drift: drift penalty for the
+                      (Used only if loss is wgan or wgan-gp)
+        :param d_repeats: How many times the discriminator is trained per G iteration.
+        :param use_ema: boolean for whether to use exponential moving averages
+        :param ema_decay: value of mu for ema
+        :param device: device to run the GAN on (GPU / CPU)
         """
 
         # state of the object
         assert structure in ['fixed', 'linear']
         self.structure = structure
         self.depth = int(np.log2(resolution)) - 1
-
         self.latent_size = latent_size
-        self.num_channels = num_channels
-        self.d_repeats = d_repeats
         self.device = device
+        self.d_repeats = d_repeats
 
         self.use_ema = use_ema
         self.ema_decay = ema_decay
 
         # Create the Generator and the Discriminator
-        self.gen = Generator(num_channels=self.num_channels,
+        self.gen = Generator(num_channels=num_channels,
                              resolution=resolution,
                              structure=self.structure,
                              **g_args).to(self.device)
-
-        self.dis = Discriminator(num_channels=self.num_channels,
+        self.dis = Discriminator(num_channels=num_channels,
                                  resolution=resolution,
                                  structure=self.structure,
                                  **d_args).to(self.device)
@@ -392,6 +404,7 @@ class StyleGAN:
         self.__setup_dis_optim(**d_opt_args)
 
         # define the loss function used for training the GAN
+        self.drift = drift
         self.loss = self.__setup_loss(loss)
 
         # Use of ema
@@ -415,13 +428,10 @@ class StyleGAN:
 
             if loss == "standard-gan":
                 loss = Losses.StandardGAN(self.dis)
-
             elif loss == "hinge":
                 loss = Losses.HingeGAN(self.dis)
-
             elif loss == "relativistic-hinge":
                 loss = Losses.RelativisticAverageHingeGAN(self.dis)
-
             else:
                 raise ValueError("Unknown loss function requested")
 
@@ -509,7 +519,6 @@ class StyleGAN:
         # generate fake samples:
         fake_samples = self.gen(noise, depth, alpha)
 
-        # TODO_complete:
         # Change this implementation for making it compatible for relativisticGAN
         loss = self.loss.gen_loss(real_samples, fake_samples, depth, alpha)
 
@@ -546,35 +555,32 @@ class StyleGAN:
         save_image(samples, img_file, nrow=int(np.sqrt(len(samples))),
                    normalize=True, scale_each=True, pad_value=128, padding=1)
 
-    def train(self, dataset, epochs, batch_sizes, fade_in_percentage, logger, output,
-              num_samples=16, start_depth=0, num_workers=3, feedback_factor=100, checkpoint_factor=1):
+    def train(self, dataset, num_workers, epochs, batch_sizes, fade_in_percentage, logger, output,
+              num_samples=36, start_depth=0, feedback_factor=100, checkpoint_factor=1):
         """
         Utility method for training the GAN. Note that you don't have to necessarily use this
         you can use the optimize_generator and optimize_discriminator for your own training routine.
 
-        :param output:
-        :param logger:
         :param dataset: object of the dataset used for training.
                         Note that this is not the data loader (we create data loader in this method
                         since the batch_sizes for resolutions can be different)
+        :param num_workers: number of workers for reading the data. def=3
         :param epochs: list of number of epochs to train the network for every resolution
         :param batch_sizes: list of batch_sizes for every resolution
         :param fade_in_percentage: list of percentages of epochs per resolution used for fading in the new layer
                                    not used for first resolution, but dummy value still needed.
+        :param logger:
+        :param output: Output dir for samples,models,and log.
         :param num_samples: number of samples generated in sample_sheet. def=36
         :param start_depth: start training from this depth. def=0
-        :param num_workers: number of workers for reading the data. def=3
         :param feedback_factor: number of logs per epoch. def=100
-        :param checkpoint_factor: save model after these many epochs.
-                                  Note that only one model is stored per resolution.
-                                  during one resolution, the checkpoint will be updated (Rewritten)
-                                  according to this factor.
+        :param checkpoint_factor:
         :return: None (Writes multiple files to disk)
         """
 
-        assert self.depth <= len(batch_sizes) + 1, "batch_sizes not compatible with depth"
-        assert self.depth <= len(batch_sizes) + 1, "batch_sizes not compatible with depth"
-        assert self.depth <= len(batch_sizes) + 1, "batch_sizes not compatible with depth"
+        assert self.depth <= len(epochs), "epochs not compatible with depth"
+        assert self.depth <= len(batch_sizes), "batch_sizes not compatible with depth"
+        assert self.depth <= len(fade_in_percentage), "fade_in_percentage not compatible with depth"
 
         # turn the generator and discriminator into train mode
         self.gen.train()
@@ -681,7 +687,7 @@ class StyleGAN:
                         torch.save(self.gen_shadow.state_dict(), gen_shadow_save_file)
                         logger.info("Saving the model to: %s\n" % gen_shadow_save_file)
 
-        logger.info('Training completed ...\n')
+        logger.info('Training completed.\n')
 
 
 if __name__ == '__main__':

@@ -21,8 +21,10 @@ from models.GAN import StyleGAN
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="StyleGAN pytorch implementation.")
     parser.add_argument('--config', default='./configs/sample.yaml')
+
     parser.add_argument("--start_depth", action="store", type=int, default=0,
                         help="Starting depth for training the network")
+
     parser.add_argument("--generator_file", action="store", type=str, default=None,
                         help="pretrained Generator file (compatible with my code)")
     parser.add_argument("--gen_shadow_file", action="store", type=str, default=None,
@@ -71,11 +73,16 @@ if __name__ == '__main__':
     style_gan = StyleGAN(structure=opt.structure,
                          resolution=opt.dataset.resolution,
                          num_channels=opt.dataset.channels,
+                         latent_size=opt.model.gen.latent_size,
                          g_args=opt.model.gen,
                          d_args=opt.model.dis,
                          g_opt_args=opt.model.g_optim,
                          d_opt_args=opt.model.d_optim,
-                         use_ema=True,
+                         loss=opt.loss,
+                         drift=opt.drift,
+                         d_repeats=opt.d_repeats,
+                         use_ema=opt.use_ema,
+                         ema_decay=opt.ema_decay,
                          device=device)
 
     # Resume training from checkpoints
@@ -103,10 +110,13 @@ if __name__ == '__main__':
 
     # train the network
     style_gan.train(dataset=dataset,
+                    num_workers=opt.num_works,
                     epochs=opt.sched.epochs,
                     batch_sizes=opt.sched.batch_sizes,
                     fade_in_percentage=opt.sched.fade_in_percentage,
                     logger=logger,
                     output=output_dir,
-                    feedback_factor=10,
-                    checkpoint_factor=10)
+                    num_samples=opt.num_samples,
+                    start_depth=args.start_depth,
+                    feedback_factor=opt.feedback_factor,
+                    checkpoint_factor=opt.checkpoint_factor)

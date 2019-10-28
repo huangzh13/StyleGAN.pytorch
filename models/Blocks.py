@@ -135,12 +135,12 @@ class DiscriminatorTop(nn.Sequential):
 
 
 class DiscriminatorBlock(nn.Sequential):
-    def __init__(self, in_channels, out_channels, gain, use_wscale, activation_layer):
+    def __init__(self, in_channels, out_channels, gain, use_wscale, activation_layer, blur_kernel):
         super().__init__(OrderedDict([
             ('conv0', EqualizedConv2d(in_channels, in_channels, kernel_size=3, gain=gain, use_wscale=use_wscale)),
             # out channels nf(res-1)
             ('act0', activation_layer),
-            ('blur', BlurLayer()),
+            ('blur', BlurLayer(kernel=blur_kernel)),
             ('conv1_down', EqualizedConv2d(in_channels, out_channels, kernel_size=3,
                                            gain=gain, use_wscale=use_wscale, downscale=True)),
             ('act1', activation_layer)]))
