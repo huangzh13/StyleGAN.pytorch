@@ -2,8 +2,9 @@
 
 <p align="center">
      <img alt="CelebA" src=diagrams/race_chinese_girl.png width=100% /> <br>
-     <b> CelebA [128 x 128] </b>
+     <a align="center" href="http://www.seeprettyface.com/mydataset.html">[ChineseGirl Dataset]</a>
 </p>
+
 
 ## Features
 
