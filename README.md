@@ -5,6 +5,8 @@
      <a align="center" href="http://www.seeprettyface.com/mydataset.html">[ChineseGirl Dataset]</a>
 </p>
 
+> Thanks to dataset provider:Copyright(c) 2018, seeprettyface.com, BUPT_GWY contributes the dataset.
+
 
 ## Features
 
@@ -13,8 +15,8 @@
 - [x] Equalized Learning Rate
 - [x] PixelNorm Layer
 - [x] Minibatch Standard Deviation Layer
-- [ ] Style Mixing Regularization
 - [x] Stochastic Variation
+- [ ] Style Mixing Regularization
 - [ ] Truncation Trick   
 - [ ] Multi-GPU Training
 - [ ] FP-16 Support
