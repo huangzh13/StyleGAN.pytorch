@@ -1,7 +1,7 @@
 # StyleGAN.pytorch
 
 <p align="center">
-     <img alt="CelebA" src=diagrams/celeba.png width=40% /> <br>
+     <img alt="CelebA" src=diagrams/race_chinese_girl.png width=100% /> <br>
      <b> CelebA [128 x 128] </b>
 </p>
 
