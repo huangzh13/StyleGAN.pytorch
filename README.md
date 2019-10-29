@@ -31,7 +31,7 @@
 - torchvision
 
 ### Running the training script:
-Train on CelebA from scratch:
+Train from scratch:
 ```shell script
 python train.py --config configs/sample.yaml
 ```

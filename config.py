@@ -3,7 +3,7 @@
    File Name:    config.py
    Author:       Zhonghao Huang
    Date:         2019/10/22
-   Description:
+   Description:  Global Configure.
 -------------------------------------------------
 """
 
