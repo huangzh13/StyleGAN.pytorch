@@ -18,6 +18,16 @@ from data import make_dataset
 from utils import make_logger, list_dir_recursively_with_ignore, copy_files_and_create_dirs
 from models.GAN import StyleGAN
 
+
+# Load fewer layers of pre-trained models if possible
+def load(model, cpk_file):
+    pretrained_dict = torch.load(cpk_file)
+    model_dict = model.state_dict()
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+    model_dict.update(pretrained_dict)
+    model.load_state_dict(model_dict)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="StyleGAN pytorch implementation.")
     parser.add_argument('--config', default='./configs/sample.yaml')
@@ -87,25 +97,29 @@ if __name__ == '__main__':
 
     # Resume training from checkpoints
     if args.generator_file is not None:
-        logger.info("Loading generator from:", args.generator_file)
-        style_gan.gen.load_state_dict(torch.load(args.generator_file))
+        logger.info("Loading generator from: %s", args.generator_file)
+        # style_gan.gen.load_state_dict(torch.load(args.generator_file))
+        # Load fewer layers of pre-trained models if possible
+        load(style_gan.gen, args.generator_file)
     else:
         logger.info("Training from scratch...")
 
     if args.discriminator_file is not None:
-        logger.info("Loading discriminator from:", args.discriminator_file)
+        logger.info("Loading discriminator from: %s", args.discriminator_file)
         style_gan.dis.load_state_dict(torch.load(args.discriminator_file))
 
     if args.gen_shadow_file is not None and opt.use_ema:
-        logger.info("Loading shadow generator from:", args.gen_shadow_file)
-        style_gan.gen_shadow.load_state_dict(torch.load(args.gen_shadow_file))
+        logger.info("Loading shadow generator from: %s", args.gen_shadow_file)
+        # style_gan.gen_shadow.load_state_dict(torch.load(args.gen_shadow_file))
+        # Load fewer layers of pre-trained models if possible
+        load(style_gan.gen_shadow, args.gen_shadow_file)
 
     if args.gen_optim_file is not None:
-        logger.info("Loading generator optimizer from:", args.gen_optim_file)
+        logger.info("Loading generator optimizer from: %s", args.gen_optim_file)
         style_gan.gen_optim.load_state_dict(torch.load(args.gen_optim_file))
 
     if args.dis_optim_file is not None:
-        logger.info("Loading discriminator optimizer from:", args.dis_optim_file)
+        logger.info("Loading discriminator optimizer from: %s", args.dis_optim_file)
         style_gan.dis_optim.load_state_dict(torch.load(args.dis_optim_file))
 
     # train the network
