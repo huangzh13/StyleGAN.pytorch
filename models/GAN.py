@@ -15,6 +15,7 @@ import datetime
 import time
 import timeit
 import copy
+import random
 import numpy as np
 from collections import OrderedDict
 
@@ -219,9 +220,11 @@ class Generator(nn.Module):
 
         super(Generator, self).__init__()
 
+        self.style_mixing_prob = style_mixing_prob
+
         # Setup components.
-        num_layers = (int(np.log2(resolution)) - 1) * 2
-        self.g_mapping = GMapping(dlatent_broadcast=num_layers, **kwargs)
+        self.num_layers = (int(np.log2(resolution)) - 1) * 2
+        self.g_mapping = GMapping(dlatent_broadcast=self.num_layers, **kwargs)
         self.g_synthesis = GSynthesis(resolution=resolution, **kwargs)
 
         # Update moving average of W.
@@ -239,7 +242,14 @@ class Generator(nn.Module):
         dlatents_in = self.g_mapping(latents_in)
 
         # Perform style mixing regularization.
-        # TODO
+        if self.training:
+            latents2 = torch.randn(latents_in.shape).to(latents_in.device)
+            dlatents2 = self.g_mapping(latents2)
+            layer_idx = torch.from_numpy(np.arange(self.num_layers)[np.newaxis, :, np.newaxis]).to(latents_in.device)
+            cur_layers = 2 * (depth + 1)
+            mixing_cutoff = random.randint(1, cur_layers) if random.random() < self.style_mixing_prob else cur_layers
+            dlatents_in = torch.where(layer_idx < mixing_cutoff, dlatents_in, dlatents2)
+
         # Apply truncation trick.
         # TODO
 

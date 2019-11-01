@@ -1,0 +1,13 @@
+# Config file for ChineseGirl Dataset (10k)
+
+output_dir: '/data/hzh/checkpoints/StyleGAN.pytorch/ckp_race_256_mix'
+structure: 'linear'
+device_id: ('3')
+checkpoint_factor: 20
+dataset:
+  img_dir: '/home/hzh/data/ChineseGirl'
+  folder: False
+  resolution: 256
+sched:
+  # 4,8,16,32,64,128,256
+  epochs: [40,80,80,80,80,160,160]
