@@ -242,7 +242,7 @@ class Generator(nn.Module):
         dlatents_in = self.g_mapping(latents_in)
 
         # Perform style mixing regularization.
-        if self.training:
+        if self.training and self.style_mixing_prob is not None and self.style_mixing_prob > 0:
             latents2 = torch.randn(latents_in.shape).to(latents_in.device)
             dlatents2 = self.g_mapping(latents2)
             layer_idx = torch.from_numpy(np.arange(self.num_layers)[np.newaxis, :, np.newaxis]).to(latents_in.device)
