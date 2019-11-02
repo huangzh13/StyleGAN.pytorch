@@ -34,6 +34,10 @@ def parse_arguments():
     parser.add_argument("--output_dir", action="store", type=str,
                         default="output/",
                         help="path to the output directory for the frames")
+    parser.add_argument("--input", action="store", type=str,
+                        default=None, help="the dlatent code (W) for a certain sample")
+    parser.add_argument("--output", action="store", type=str,
+                        default="output.png", help="the output for the certain samples")
 
     args = parser.parse_args()
 
@@ -85,20 +89,28 @@ def main(args):
     latent_size = opt.model.gen.latent_size
     out_depth = int(np.log2(opt.dataset.resolution)) - 2
 
-    print("Generating scale synchronized images ...")
-    for img_num in tqdm(range(1, args.num_samples + 1)):
-        # generate the images:
-        with torch.no_grad():
-            point = torch.randn(1, latent_size)
-            point = (point / point.norm()) * (latent_size ** 0.5)
-            ss_image = gen(point, depth=out_depth, alpha=1)
-            # color adjust the generated image:
-            ss_image = adjust_dynamic_range(ss_image)
+    if args.input is None:
+        print("Generating scale synchronized images ...")
+        for img_num in tqdm(range(1, args.num_samples + 1)):
+            # generate the images:
+            with torch.no_grad():
+                point = torch.randn(1, latent_size)
+                point = (point / point.norm()) * (latent_size ** 0.5)
+                ss_image = gen(point, depth=out_depth, alpha=1)
+                # color adjust the generated image:
+                ss_image = adjust_dynamic_range(ss_image)
 
-        # save the ss_image in the directory
-        save_image(ss_image, os.path.join(save_path, str(img_num) + ".png"))
+            # save the ss_image in the directory
+            save_image(ss_image, os.path.join(save_path, str(img_num) + ".png"))
 
-    print("Generated %d images at %s" % (args.num_samples, save_path))
+        print("Generated %d images at %s" % (args.num_samples, save_path))
+    else:
+        code = np.load(args.input)
+        dlatent_in = torch.unsqueeze(torch.from_numpy(code), 0)
+        ss_image = gen.g_synthesis(dlatent_in, depth=out_depth, alpha=1)
+        # color adjust the generated image:
+        ss_image = adjust_dynamic_range(ss_image)
+        save_image(ss_image, args.output)
 
 
 if __name__ == '__main__':
