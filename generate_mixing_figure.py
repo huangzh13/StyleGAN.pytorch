@@ -9,12 +9,16 @@ from models.GAN import Generator
 from generate_grid import adjust_dynamic_range
 
 
-def draw_style_mixing_figure(png, gen, out_depth, n_col, n_row, style_ranges):
+def draw_style_mixing_figure(png, gen, out_depth, src_seeds, dst_seeds, style_ranges):
+    n_col = len(src_seeds)
+    n_row = len(dst_seeds)
     w = h = 2 ** (out_depth + 2)
     with torch.no_grad():
         latent_size = gen.g_mapping.latent_size
-        src_latents = torch.randn(n_col, latent_size)
-        dst_latents = torch.randn(n_row, latent_size)
+        src_latents_np = np.stack([np.random.RandomState(seed).randn(latent_size, ) for seed in src_seeds])
+        dst_latents_np = np.stack([np.random.RandomState(seed).randn(latent_size, ) for seed in dst_seeds])
+        src_latents = torch.from_numpy(src_latents_np.astype(np.float32))
+        dst_latents = torch.from_numpy(dst_latents_np.astype(np.float32))
         src_dlatents = gen.g_mapping(src_latents)  # [seed, layer, component]
         dst_dlatents = gen.g_mapping(dst_latents)  # [seed, layer, component]
         src_images = gen.g_synthesis(src_dlatents, depth=out_depth, alpha=1)
@@ -69,9 +73,10 @@ def main(args):
 
     # path for saving the files:
     # generate the images:
+    # src_seeds = [639, 701, 687, 615, 1999], dst_seeds = [888, 888, 888],
     draw_style_mixing_figure(os.path.join('figure03-style-mixing.png'), gen,
-                             out_depth=6, n_col=5, n_row=3,
-                             style_ranges=[range(0, 2)] * 1 + [range(1, 3)] * 1 + [range(3, 7)])
+                             out_depth=6, src_seeds=[639, 701, 687, 615, 1999], dst_seeds=[8888, 8888, 8888],
+                             style_ranges=[range(0, 2)] * 1 + [range(2, 7)] * 1 + [range(7, 14)] * 1)
     print('Done.')
 
 
