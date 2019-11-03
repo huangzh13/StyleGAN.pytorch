@@ -48,7 +48,7 @@ python generate_mixing_figure.py --config config/sample.yaml --generator_file []
 ```
 
 <p align="center">
-     <img src=diagrams/figure03-style-mixing.png width=90% /> <br>
+     <img src=diagrams/figure03-style-mixing-mix.png width=90% /> <br>
 </p>
 
 
