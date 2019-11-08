@@ -75,8 +75,8 @@ def main(args):
     # generate the images:
     # src_seeds = [639, 701, 687, 615, 1999], dst_seeds = [888, 888, 888],
     draw_style_mixing_figure(os.path.join('figure03-style-mixing.png'), gen,
-                             out_depth=6, src_seeds=[639, 701, 687, 615, 1999], dst_seeds=[8888, 8888, 8888],
-                             style_ranges=[range(0, 2)] * 1 + [range(2, 7)] * 1 + [range(7, 14)] * 1)
+                             out_depth=6, src_seeds=[639, 1995, 687, 615, 1999], dst_seeds=[888, 888, 888],
+                             style_ranges=[range(0, 2)] * 1 + [range(2, 8)] * 1 + [range(8, 14)] * 1)
     print('Done.')
 
 

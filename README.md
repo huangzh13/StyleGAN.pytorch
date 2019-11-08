@@ -1,7 +1,7 @@
 # StyleGAN.pytorch
 
 <p align="center">
-     <img src=diagrams/race_chinese_girl_256.png width=100% /> <br>
+     <img src=diagrams/chinese_girl_256.png width=100% /> <br>
      <a align="center" href="http://www.seeprettyface.com/mydataset.html">[ChineseGirl Dataset]</a>
 </p>
 
@@ -51,6 +51,12 @@ python generate_mixing_figure.py --config config/sample.yaml --generator_file []
      <img src=diagrams/figure03-style-mixing-mix.png width=90% /> <br>
 </p>
 
+## Generated samples
+
+<p align="center">
+     <img src=diagrams/ffhq_128.png width=90% /> <br>
+     <a align="center" href="https://github.com/NVlabs/ffhq-dataset">[FFHQ Dataset](128x128)</a>
+</p>
 
 ## Thanks
 
