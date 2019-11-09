@@ -16,6 +16,7 @@
 - [x] PixelNorm Layer
 - [x] Minibatch Standard Deviation Layer
 - [x] Style Mixing Regularization (Experimental)
+- [ ] Gradient Clipping
 - [ ] Truncation Trick   
 - [ ] Multi-GPU Training
 - [ ] FP-16 Support
