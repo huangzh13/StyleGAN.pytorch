@@ -15,7 +15,7 @@
 - [x] Equalized Learning Rate
 - [x] PixelNorm Layer
 - [x] Minibatch Standard Deviation Layer
-- [x] Style Mixing Regularization (Experimental)
+- [x] Style Mixing Regularization
 - [ ] Gradient Clipping
 - [ ] Truncation Trick   
 - [ ] Multi-GPU Training
