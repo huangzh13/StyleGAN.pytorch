@@ -128,6 +128,9 @@ class GSynthesis(nn.Module):
 
         super().__init__()
 
+        if blur_filter is None:
+            blur_filter = [1, 2, 1]
+
         def nf(stage):
             return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
 
