@@ -128,8 +128,8 @@ class GSynthesis(nn.Module):
 
         super().__init__()
 
-        if blur_filter is None:
-            blur_filter = [1, 2, 1]
+        # if blur_filter is None:
+        #     blur_filter = [1, 2, 1]
 
         def nf(stage):
             return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
@@ -291,8 +291,8 @@ class Discriminator(nn.Module):
         self.mbstd_num_features = mbstd_num_features
         self.mbstd_group_size = mbstd_group_size
         self.structure = structure
-        if blur_filter is None:
-            blur_filter = [1, 2, 1]
+        # if blur_filter is None:
+        #     blur_filter = [1, 2, 1]
 
         resolution_log2 = int(np.log2(resolution))
         assert resolution == 2 ** resolution_log2 and resolution >= 4

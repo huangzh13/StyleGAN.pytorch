@@ -3,6 +3,9 @@ structure: 'linear'
 device_id: ('3')
 checkpoint_factor: 4
 feedback_factor: 4
+model:
+  gen:
+    mapping_layers: 8
 dataset:
   img_dir: '/home/hzh/data/Cari2-128'
   folder: False

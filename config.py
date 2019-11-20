@@ -60,12 +60,14 @@ cfg.model.gen = CN()
 cfg.model.gen.latent_size = 512
 # 8 in original paper
 cfg.model.gen.mapping_layers = 4
+cfg.model.gen.blur_filter = [1, 2, 1]
 
 # ---------------------------------------------------------------------------- #
 # Options for Discriminator
 # ---------------------------------------------------------------------------- #
 cfg.model.dis = CN()
 cfg.model.dis.use_wscale = True
+cfg.model.dis.blur_filter = [1, 2, 1]
 
 # ---------------------------------------------------------------------------- #
 # Options for Generator Optimizer
