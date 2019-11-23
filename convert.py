@@ -23,6 +23,11 @@ def load_weights(weights_dir):
     weights = pickle.load(open(weights_dir, 'rb'))
     weights_pt = [collections.OrderedDict([(k, torch.from_numpy(v.value().eval()))
                                            for k, v in w.trainables.items()]) for w in weights]
+
+    # dlatent_avg
+    for k, v in weights[2].vars.items():
+        if k == 'dlatent_avg':
+            weights_pt.append(collections.OrderedDict([(k, torch.from_numpy(v.value().eval()))]))
     return weights_pt
 
 
@@ -100,7 +105,7 @@ def main(args):
                     structure=opt.structure,
                     **opt.model.gen)
 
-    state_G, state_D, state_Gs = load_weights(args.input_file)
+    state_G, state_D, state_Gs, dlatent_avg = load_weights(args.input_file)
 
     # we delete the useless to_rgb filters
     params = {}

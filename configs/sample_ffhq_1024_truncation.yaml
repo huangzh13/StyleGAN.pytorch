@@ -12,6 +12,6 @@ dataset:
 model:
   gen:
     mapping_layers: 8
-    truncation_psi: -1.
+
 sched:
   epochs: [8,16,32,32,64,64]
