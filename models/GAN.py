@@ -27,7 +27,7 @@ import models.Losses as Losses
 from data import get_data_loader
 from models import update_average
 from models.Blocks import DiscriminatorTop, DiscriminatorBlock, InputBlock, GSynthesisBlock
-from models.CustomLayers import EqualizedConv2d, PixelNormLayer, EqualizedLinear
+from models.CustomLayers import EqualizedConv2d, PixelNormLayer, EqualizedLinear, Truncation
 
 
 class GMapping(nn.Module):
@@ -206,16 +206,18 @@ class GSynthesis(nn.Module):
 
 class Generator(nn.Module):
 
-    def __init__(self, resolution, truncation_psi=0.7, truncation_cutoff=8, truncation_psi_val=None,
-                 truncation_cutoff_val=None, dlatent_avg_beta=0.995, style_mixing_prob=0.9, **kwargs):
+    def __init__(self, resolution, latent_size=512, dlatent_size=512,
+                 truncation_psi=0.7, truncation_cutoff=8, dlatent_avg_beta=0.995,
+                 style_mixing_prob=0.9, **kwargs):
         """
         # Style-based generator used in the StyleGAN paper.
         # Composed of two sub-networks (G_mapping and G_synthesis).
 
+        :param resolution:
+        :param latent_size:
+        :param dlatent_size:
         :param truncation_psi: Style strength multiplier for the truncation trick. None = disable.
         :param truncation_cutoff: Number of layers for which to apply the truncation trick. None = disable.
-        :param truncation_psi_val: Value for truncation_psi to use during validation.
-        :param truncation_cutoff_val: Value for truncation_cutoff to use during validation.
         :param dlatent_avg_beta: Decay for tracking the moving average of W during training. None = disable.
         :param style_mixing_prob: Probability of mixing styles during training. None = disable.
         :param kwargs: Arguments for sub-networks (G_mapping and G_synthesis).
@@ -227,11 +229,15 @@ class Generator(nn.Module):
 
         # Setup components.
         self.num_layers = (int(np.log2(resolution)) - 1) * 2
-        self.g_mapping = GMapping(dlatent_broadcast=self.num_layers, **kwargs)
+        self.g_mapping = GMapping(latent_size, dlatent_size, dlatent_broadcast=self.num_layers, **kwargs)
         self.g_synthesis = GSynthesis(resolution=resolution, **kwargs)
 
-        # Update moving average of W.
-        # TODO
+        if truncation_psi > 0:
+            self.truncation = Truncation(avg_latent=torch.randn(dlatent_size),
+                                         max_layer=truncation_cutoff,
+                                         threshold=truncation_psi)
+        else:
+            self.truncation = None
 
     def forward(self, latents_in, depth, alpha, labels_in=None):
         """
@@ -244,17 +250,24 @@ class Generator(nn.Module):
 
         dlatents_in = self.g_mapping(latents_in)
 
-        # Perform style mixing regularization.
-        if self.training and self.style_mixing_prob is not None and self.style_mixing_prob > 0:
-            latents2 = torch.randn(latents_in.shape).to(latents_in.device)
-            dlatents2 = self.g_mapping(latents2)
-            layer_idx = torch.from_numpy(np.arange(self.num_layers)[np.newaxis, :, np.newaxis]).to(latents_in.device)
-            cur_layers = 2 * (depth + 1)
-            mixing_cutoff = random.randint(1, cur_layers) if random.random() < self.style_mixing_prob else cur_layers
-            dlatents_in = torch.where(layer_idx < mixing_cutoff, dlatents_in, dlatents2)
+        if self.training:
+            # Update moving average of W.
+            # TODO
 
-        # Apply truncation trick.
-        # TODO
+            # Perform style mixing regularization.
+            if self.style_mixing_prob is not None and self.style_mixing_prob > 0:
+                latents2 = torch.randn(latents_in.shape).to(latents_in.device)
+                dlatents2 = self.g_mapping(latents2)
+                layer_idx = torch.from_numpy(np.arange(self.num_layers)[np.newaxis, :, np.newaxis]).to(
+                    latents_in.device)
+                cur_layers = 2 * (depth + 1)
+                mixing_cutoff = random.randint(1,
+                                               cur_layers) if random.random() < self.style_mixing_prob else cur_layers
+                dlatents_in = torch.where(layer_idx < mixing_cutoff, dlatents_in, dlatents2)
+
+            # Apply truncation trick.
+            if self.truncation is not None:
+                dlatents_in = self.truncation(dlatents_in)
 
         fake_images = self.g_synthesis(dlatents_in, depth, alpha)
 

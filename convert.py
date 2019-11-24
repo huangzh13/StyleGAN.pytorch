@@ -23,6 +23,11 @@ def load_weights(weights_dir):
     weights = pickle.load(open(weights_dir, 'rb'))
     weights_pt = [collections.OrderedDict([(k, torch.from_numpy(v.value().eval()))
                                            for k, v in w.trainables.items()]) for w in weights]
+
+    # dlatent_avg
+    for k, v in weights[2].vars.items():
+        if k == 'dlatent_avg':
+            weights_pt.append(collections.OrderedDict([(k, torch.from_numpy(v.value().eval()))]))
     return weights_pt
 
 
@@ -45,7 +50,7 @@ def key_translate(k):
              .replace('conv0_up.stylemod', 'epi1.style_mod.lin')
              .replace('conv1.noise.weight', 'epi2.top_epi.noise.weight')
              .replace('conv1.stylemod', 'epi2.style_mod.lin')
-             .replace('torgb_lod0', 'to_rgb.5'))
+             .replace('torgb_lod0', 'to_rgb.{}'.format(out_depth)))
     elif k[0] == 'g_mapping':
         k.insert(1, 'map')
         k = '.'.join(k)
@@ -87,7 +92,9 @@ def parse_arguments():
     return args
 
 
-def main(args):
+if __name__ == '__main__':
+    args = parse_arguments()
+
     from config import cfg as opt
 
     opt.merge_from_file(args.config)
@@ -99,8 +106,9 @@ def main(args):
                     num_channels=opt.dataset.channels,
                     structure=opt.structure,
                     **opt.model.gen)
+    out_depth = gen.g_synthesis.depth - 1
 
-    state_G, state_D, state_Gs = load_weights(args.input_file)
+    state_G, state_D, state_Gs, dlatent_avg = load_weights(args.input_file)
 
     # we delete the useless to_rgb filters
     params = {}
@@ -108,6 +116,9 @@ def main(args):
         params[k] = v
     param_dict = {key_translate(k): weight_translate(k, v) for k, v in state_Gs.items()
                   if 'torgb_lod' not in key_translate(k)}
+
+    for k, v in dlatent_avg.items():
+        param_dict['truncation.avg_latent'] = v
 
     sd_shapes = {k: v.shape for k, v in gen.state_dict().items()}
     param_shapes = {k: v.shape for k, v in param_dict.items()}
@@ -126,7 +137,3 @@ def main(args):
     gen.load_state_dict(param_dict, strict=False)  # needed for the blur kernels
     torch.save(gen.state_dict(), args.output_file)
     print('Done.')
-
-
-if __name__ == '__main__':
-    main(parse_arguments())

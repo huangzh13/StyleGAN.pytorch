@@ -6,8 +6,6 @@ feedback_factor: 4
 model:
   gen:
     mapping_layers: 8
-    # Negative numbers represent no truncation layers
-    truncation_psi: -1.
 dataset:
   img_dir: '/home/hzh/data/Cari2-128'
   folder: False
