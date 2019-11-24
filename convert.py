@@ -114,6 +114,9 @@ def main(args):
     param_dict = {key_translate(k): weight_translate(k, v) for k, v in state_Gs.items()
                   if 'torgb_lod' not in key_translate(k)}
 
+    for k, v in dlatent_avg.items():
+        param_dict['truncation.avg_latent'] = v
+
     sd_shapes = {k: v.shape for k, v in gen.state_dict().items()}
     param_shapes = {k: v.shape for k, v in param_dict.items()}
 

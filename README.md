@@ -54,6 +54,16 @@ python generate_mixing_figure.py --config config/sample.yaml --generator_file []
      <img src=diagrams/figure03-style-mixing-mix.png width=90% /> <br>
 </p>
 
+### draw truncation trick figure
+
+```shell script
+python generate_truncation_figure.py --config configs/sample_cari2_128_truncation.yaml --generator_file cari2_128_truncation_gen.pth
+```
+
+<p align="center">
+     <img src=diagrams/figure08-truncation-trick.png width=90% /> <br>
+</p>
+
 ### Convert from official format
 ```shell script
 python convert.py --config configs/sample_ffhq_1024.yaml --input_file PATH/karras2019stylegan-ffhq-1024x1024.pkl --output_file ffhq_1024_gen.pth
@@ -73,7 +83,7 @@ Using weights tranferred from official tensorflow repo.
 </p>
 
 <p align="center">
-     <img src=diagrams/Cari2_128.png width=90% /> <br>
+     <img src=diagrams/cari2_128.png width=90% /> <br>
      <a align="center" href="https://cs.nju.edu.cn/rl/WebCaricature.htm">[WebCaricatureDataset](128x128)</a><br>
 </p>
 

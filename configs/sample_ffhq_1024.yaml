@@ -12,6 +12,7 @@ dataset:
 model:
   gen:
     mapping_layers: 8
+    # Negative numbers represent no truncation layers
     truncation_psi: -1.
 sched:
   epochs: [8,16,32,32,64,64]

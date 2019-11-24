@@ -62,7 +62,7 @@ cfg.model.gen.latent_size = 512
 cfg.model.gen.mapping_layers = 4
 cfg.model.gen.blur_filter = [1, 2, 1]
 cfg.model.gen.truncation_psi = 0.7
-cfg.model.gen.truncation_cutoff = 8,
+cfg.model.gen.truncation_cutoff = 8
 
 # ---------------------------------------------------------------------------- #
 # Options for Discriminator
