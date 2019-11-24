@@ -50,7 +50,7 @@ def key_translate(k):
              .replace('conv0_up.stylemod', 'epi1.style_mod.lin')
              .replace('conv1.noise.weight', 'epi2.top_epi.noise.weight')
              .replace('conv1.stylemod', 'epi2.style_mod.lin')
-             .replace('torgb_lod0', 'to_rgb.5'))
+             .replace('torgb_lod0', 'to_rgb.{}'.format(out_depth)))
     elif k[0] == 'g_mapping':
         k.insert(1, 'map')
         k = '.'.join(k)
@@ -92,7 +92,9 @@ def parse_arguments():
     return args
 
 
-def main(args):
+if __name__ == '__main__':
+    args = parse_arguments()
+
     from config import cfg as opt
 
     opt.merge_from_file(args.config)
@@ -104,6 +106,7 @@ def main(args):
                     num_channels=opt.dataset.channels,
                     structure=opt.structure,
                     **opt.model.gen)
+    out_depth = gen.g_synthesis.depth - 1
 
     state_G, state_D, state_Gs, dlatent_avg = load_weights(args.input_file)
 
@@ -134,7 +137,3 @@ def main(args):
     gen.load_state_dict(param_dict, strict=False)  # needed for the blur kernels
     torch.save(gen.state_dict(), args.output_file)
     print('Done.')
-
-
-if __name__ == '__main__':
-    main(parse_arguments())
