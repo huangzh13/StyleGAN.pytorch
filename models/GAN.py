@@ -255,7 +255,7 @@ class Generator(nn.Module):
             # Update moving average of W(dlatent).
             # TODO
             if self.truncation is not None:
-                self.truncation.update(dlatents_in[0, 0].clone().detach())
+                self.truncation.update(dlatents_in[0, 0].detach())
 
             # Perform style mixing regularization.
             if self.style_mixing_prob is not None and self.style_mixing_prob > 0:
