@@ -233,9 +233,10 @@ class Generator(nn.Module):
         self.g_synthesis = GSynthesis(resolution=resolution, **kwargs)
 
         if truncation_psi > 0:
-            self.truncation = Truncation(avg_latent=torch.randn(dlatent_size),
+            self.truncation = Truncation(avg_latent=torch.zeros(dlatent_size),
                                          max_layer=truncation_cutoff,
-                                         threshold=truncation_psi)
+                                         threshold=truncation_psi,
+                                         beta=dlatent_avg_beta)
         else:
             self.truncation = None
 
@@ -251,8 +252,10 @@ class Generator(nn.Module):
         dlatents_in = self.g_mapping(latents_in)
 
         if self.training:
-            # Update moving average of W.
+            # Update moving average of W(dlatent).
             # TODO
+            if self.truncation is not None:
+                self.truncation.update(dlatents_in[0, 0].detach())
 
             # Perform style mixing regularization.
             if self.style_mixing_prob is not None and self.style_mixing_prob > 0:
