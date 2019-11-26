@@ -5,7 +5,13 @@
      <a align="center" href="http://www.seeprettyface.com/mydataset.html">[ChineseGirl Dataset]</a>
 </p>
 
-> Thanks to dataset provider:Copyright(c) 2018, seeprettyface.com, BUPT_GWY contributes the dataset.
+This repository contains the unofficial PyTorch implementation of the following paper:
+
+> A Style-Based Generator Architecture for Generative Adversarial Networks
+Tero Karras (NVIDIA), Samuli Laine (NVIDIA), Timo Aila (NVIDIA)
+> http://stylegan.xyz/paper
+> 
+> Abstract: We propose an alternative generator architecture for generative adversarial networks, borrowing from style transfer literature. The new architecture leads to an automatically learned, unsupervised separation of high-level attributes (e.g., pose and identity when trained on human faces) and stochastic variation in the generated images (e.g., freckles, hair), and it enables intuitive, scale-specific control of the synthesis. The new generator improves the state-of-the-art in terms of traditional distribution quality metrics, leads to demonstrably better interpolation properties, and also better disentangles the latent factors of variation. To quantify interpolation quality and disentanglement, we propose two new, automated methods that are applicable to any generator architecture. Finally, we introduce a new, highly varied and high-quality dataset of human faces.
 
 
 ## Features
@@ -16,9 +22,9 @@
 - [x] PixelNorm Layer
 - [x] Minibatch Standard Deviation Layer
 - [x] Style Mixing Regularization
+- [x] Truncation Trick   
 - [x] Using official tensorflow pretrained weights 
 - [ ] Gradient Clipping
-- [ ] Truncation Trick   
 - [ ] Multi-GPU Training
 - [ ] FP-16 Support
 - [ ] Conditional GAN
@@ -54,7 +60,9 @@ python generate_mixing_figure.py --config config/sample.yaml --generator_file []
      <img src=diagrams/figure03-style-mixing-mix.png width=90% /> <br>
 </p>
 
-### draw truncation trick figure
+> Thanks to dataset provider:Copyright(c) 2018, seeprettyface.com, BUPT_GWY contributes the dataset.
+
+### Ｄraw truncation trick figure
 
 ```shell script
 python generate_truncation_figure.py --config configs/sample_cari2_128_truncation.yaml --generator_file cari2_128_truncation_gen.pth
@@ -87,12 +95,12 @@ Using weights tranferred from official tensorflow repo.
      <a align="center" href="https://cs.nju.edu.cn/rl/WebCaricature.htm">[WebCaricatureDataset](128x128)</a><br>
 </p>
 
+## Reference
+
+- **stylegan[official]**: https://github.com/NVlabs/stylegan
+- **pro_gan_pytorch**: https://github.com/akanimax/pro_gan_pytorch
+- **pytorch_style_gan**: https://github.com/lernapparat/lernapparat
+
 ## Thanks
 
 Please feel free to open PRs / issues / suggestions here.
-
-## Reference
-
-- **stylegan**[official]: https://github.com/NVlabs/stylegan
-- **pro_gan_pytorch**: https://github.com/akanimax/pro_gan_pytorch
-- **pytorch_style_gan**: https://github.com/lernapparat/lernapparat
