@@ -1,7 +1,7 @@
 # StyleGAN.pytorch
 
 <p align="center">
-     <img src=diagrams/chinese_girl_256.png width=100% /> <br>
+     <img src=diagrams/grid.png width=100% /> <br>
      <a align="center" href="http://www.seeprettyface.com/mydataset.html">[ChineseGirl Dataset]</a>
 </p>
 
