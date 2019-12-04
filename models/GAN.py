@@ -461,6 +461,8 @@ class StyleGAN:
                 loss = Losses.HingeGAN(self.dis)
             elif loss == "relativistic-hinge":
                 loss = Losses.RelativisticAverageHingeGAN(self.dis)
+            elif loss == "logistic":
+                loss = Losses.LogisticGAN(self.dis)
             else:
                 raise ValueError("Unknown loss function requested")
 
@@ -554,6 +556,8 @@ class StyleGAN:
         # optimize the generator
         self.gen_optim.zero_grad()
         loss.backward()
+        # Gradient Clipping
+        nn.utils.clip_grad_norm_(self.gen.parameters(), max_norm=10.)
         self.gen_optim.step()
 
         # if use_ema is true, apply ema to the generator parameters

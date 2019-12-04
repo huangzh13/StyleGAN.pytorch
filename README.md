@@ -24,7 +24,7 @@ This repository contains the unofficial PyTorch implementation of the following 
 - [x] Style Mixing Regularization
 - [x] Truncation Trick   
 - [x] Using official tensorflow pretrained weights 
-- [ ] Gradient Clipping
+- [x] Gradient Clipping
 - [ ] Multi-GPU Training
 - [ ] FP-16 Support
 - [ ] Conditional GAN
@@ -104,3 +104,9 @@ Using weights tranferred from official tensorflow repo.
 ## Thanks
 
 Please feel free to open PRs / issues / suggestions here.
+
+## Due Credit
+This code heavily uses NVIDIA's original 
+[StyleGAN](https://github.com/NVlabs/stylegan) code. We accredit and acknowledge their work here. The 
+[Original License](/LICENSE_ORIGINAL.txt) 
+is located in the base directory (file named `LICENSE_ORIGINAL.txt`).
