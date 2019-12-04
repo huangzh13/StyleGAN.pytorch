@@ -556,6 +556,8 @@ class StyleGAN:
         # optimize the generator
         self.gen_optim.zero_grad()
         loss.backward()
+        # Gradient Clipping
+        nn.utils.clip_grad_norm_(self.gen.parameters(), max_norm=10.)
         self.gen_optim.step()
 
         # if use_ema is true, apply ema to the generator parameters

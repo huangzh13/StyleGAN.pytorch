@@ -170,18 +170,20 @@ class LogisticGAN(GANLoss):
     def __init__(self, dis):
         super().__init__(dis)
 
+    # gradient penalty
     def R1Penalty(self, real_img, height, alpha):
-        # gradient penalty
+
+        # TODO: use_loss_scaling, for fp16
         apply_loss_scaling = lambda x: x * torch.exp(x * torch.Tensor([np.float32(np.log(2.0))]).to(real_img.device))
         undo_loss_scaling = lambda x: x * torch.exp(-x * torch.Tensor([np.float32(np.log(2.0))]).to(real_img.device))
 
-        real_img.requires_grad = True
+        real_img = torch.autograd.Variable(real_img, requires_grad=True)
         real_logit = self.dis(real_img, height, alpha)
-        real_logit = apply_loss_scaling(torch.sum(real_logit))
-        real_grads = torch.autograd.grad(real_logit, real_img,
+        # real_logit = apply_loss_scaling(torch.sum(real_logit))
+        real_grads = torch.autograd.grad(outputs=real_logit, inputs=real_img,
                                          grad_outputs=torch.ones(real_logit.size()).to(real_img.device),
-                                         create_graph=True)[0].view(real_img.size(0), -1)
-        real_grads = undo_loss_scaling(real_grads)
+                                         create_graph=True, retain_graph=True)[0].view(real_img.size(0), -1)
+        # real_grads = undo_loss_scaling(real_grads)
         r1_penalty = torch.sum(torch.mul(real_grads, real_grads))
         return r1_penalty
 
