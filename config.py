@@ -16,7 +16,7 @@ cfg.device = 'cuda'
 cfg.device_id = '3'
 
 cfg.structure = 'fixed'
-cfg.loss = "relativistic-hinge"
+cfg.loss = "logistic"
 cfg.drift = 0.001
 cfg.d_repeats = 1
 cfg.use_ema = True
