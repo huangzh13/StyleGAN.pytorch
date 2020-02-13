@@ -1,5 +1,7 @@
 # StyleGAN.pytorch
 
+## \[:star: New :star:\] Please head over to [StyleGAN2.pytorch](https://github.com/huangzh13/StyleGAN2.pytorch) for my stylegan2 pytorch implementation.
+
 <p align="center">
      <img src=diagrams/grid.png width=100% /> <br>
      <a align="center" href="http://www.seeprettyface.com/mydataset.html">[ChineseGirl Dataset]</a>
