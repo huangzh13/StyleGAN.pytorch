@@ -13,9 +13,11 @@ cfg = CN()
 
 cfg.output_dir = ''
 cfg.device = 'cuda'
-cfg.device_id = '3'
+cfg.device_id = '0'
 
 cfg.structure = 'fixed'
+cfg.conditional = False
+cfg.n_classes = 0
 cfg.loss = "logistic"
 cfg.drift = 0.001
 cfg.d_repeats = 1

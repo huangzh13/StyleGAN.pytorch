@@ -9,10 +9,9 @@
 """
 
 import numpy as np
-
 import torch
 import torch.nn as nn
-
+from torch.nn import BCEWithLogitsLoss
 
 # =============================================================
 # Interface for the losses
@@ -56,13 +55,38 @@ class ConditionalGANLoss:
     """ Base class for all conditional losses """
 
     def __init__(self, dis):
+        self.criterion = BCEWithLogitsLoss()
         self.dis = dis
 
     def dis_loss(self, real_samps, fake_samps, labels, height, alpha):
-        raise NotImplementedError("dis_loss method has not been implemented")
+        # small assertion:
+        assert real_samps.device == fake_samps.device, \
+            "Real and Fake samples are not on the same device"
 
-    def gen_loss(self, real_samps, fake_samps, labels, height, alpha):
-        raise NotImplementedError("gen_loss method has not been implemented")
+        # device for computations:
+        device = fake_samps.device
+
+        # predictions for real images and fake images separately :
+        r_preds = self.dis(real_samps, height, alpha, labels_in=labels)
+        f_preds = self.dis(fake_samps, height, alpha, labels_in=labels)
+
+        # calculate the real loss:
+        real_loss = self.criterion(
+            torch.squeeze(r_preds),
+            torch.ones(real_samps.shape[0]).to(device))
+
+        # calculate the fake loss:
+        fake_loss = self.criterion(
+            torch.squeeze(f_preds),
+            torch.zeros(fake_samps.shape[0]).to(device))
+
+        # return final losses
+        return (real_loss + fake_loss) / 2
+
+    def gen_loss(self, _, fake_samps, labels, height, alpha):
+        preds = self.dis(fake_samps, height, alpha, labels_in=labels)
+        return self.criterion(torch.squeeze(preds),
+                              torch.ones(fake_samps.shape[0]).to(fake_samps.device))
 
 
 # =============================================================
@@ -72,7 +96,6 @@ class ConditionalGANLoss:
 class StandardGAN(GANLoss):
 
     def __init__(self, dis):
-        from torch.nn import BCEWithLogitsLoss
 
         super().__init__(dis)
 

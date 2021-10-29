@@ -1,0 +1,14 @@
+# Config file for CelebA dataset (200k)
+
+output_dir: '/home/itdfh/dev/StyleGAN.pytorch/GTA/stylegan-conditional'
+structure: 'linear'
+conditional: True
+n_classes: 81
+loss: 'conditional-loss'
+device_id: ('0')
+dataset:
+  img_dir: '/home/itdfh/dev/StyleGAN.pytorch/GTA/gta-vggface2-age-imagefolder'
+  folder: False
+  resolution: 128
+sched:
+  epochs: [2,4,4,4,4,8]
