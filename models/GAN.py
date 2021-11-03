@@ -10,24 +10,28 @@
 -------------------------------------------------
 """
 
-import os
+import copy
 import datetime
+import os
+import random
 import time
 import timeit
-import copy
-import random
-import numpy as np
+import warnings
 from collections import OrderedDict
 
+import numpy as np
 import torch
 import torch.nn as nn
+from data import get_data_loader
 from torch.nn.functional import interpolate
+from torch.nn.modules.sparse import Embedding
 
 import models.Losses as Losses
-from data import get_data_loader
 from models import update_average
-from models.Blocks import DiscriminatorTop, DiscriminatorBlock, InputBlock, GSynthesisBlock
-from models.CustomLayers import EqualizedConv2d, PixelNormLayer, EqualizedLinear, Truncation
+from models.Blocks import (DiscriminatorBlock, DiscriminatorTop,
+                           GSynthesisBlock, InputBlock)
+from models.CustomLayers import (EqualizedConv2d, EqualizedLinear,
+                                 PixelNormLayer, Truncation)
 
 
 class GMapping(nn.Module):
@@ -207,7 +211,8 @@ class GSynthesis(nn.Module):
 class Generator(nn.Module):
 
     def __init__(self, resolution, latent_size=512, dlatent_size=512,
-                 truncation_psi=0.7, truncation_cutoff=8, dlatent_avg_beta=0.995,
+                 conditional=False, n_classes=0, truncation_psi=0.7,
+                 truncation_cutoff=8, dlatent_avg_beta=0.995,
                  style_mixing_prob=0.9, **kwargs):
         """
         # Style-based generator used in the StyleGAN paper.
@@ -222,9 +227,15 @@ class Generator(nn.Module):
         :param style_mixing_prob: Probability of mixing styles during training. None = disable.
         :param kwargs: Arguments for sub-networks (G_mapping and G_synthesis).
         """
-
+        
         super(Generator, self).__init__()
 
+        if conditional:
+            assert n_classes > 0, "Conditional generation requires n_class > 0"
+            self.class_embedding = nn.Embedding(n_classes, latent_size)
+            latent_size *= 2
+
+        self.conditional = conditional
         self.style_mixing_prob = style_mixing_prob
 
         # Setup components.
@@ -248,6 +259,15 @@ class Generator(nn.Module):
         :param labels_in: Second input: Conditioning labels [mini_batch, label_size].
         :return:
         """
+
+        if not self.conditional:
+            if labels_in is not None:
+                warnings.warn(
+                    "Generator is unconditional, labels_in will be ignored")
+        else:
+            assert labels_in is not None, "Conditional discriminatin requires labels"
+            embedding = self.class_embedding(labels_in)
+            latents_in = torch.cat([latents_in, embedding], 1)
 
         dlatents_in = self.g_mapping(latents_in)
 
@@ -274,14 +294,16 @@ class Generator(nn.Module):
 
         fake_images = self.g_synthesis(dlatents_in, depth, alpha)
 
-        return fake_images
+        return fake_images 
 
 
 class Discriminator(nn.Module):
 
-    def __init__(self, resolution, num_channels=3, fmap_base=8192, fmap_decay=1.0, fmap_max=512,
-                 nonlinearity='lrelu', use_wscale=True, mbstd_group_size=4, mbstd_num_features=1,
-                 blur_filter=None, structure='linear', **kwargs):
+    def __init__(self, resolution, num_channels=3, conditional=False,
+                 n_classes=0, fmap_base=8192, fmap_decay=1.0, fmap_max=512,
+                 nonlinearity='lrelu', use_wscale=True, mbstd_group_size=4,
+                 mbstd_num_features=1, blur_filter=None, structure='linear',
+                 **kwargs):
         """
         Discriminator used in the StyleGAN paper.
 
@@ -301,9 +323,16 @@ class Discriminator(nn.Module):
         """
         super(Discriminator, self).__init__()
 
+        if conditional:
+            assert n_classes > 0, "Conditional Discriminator requires n_class > 0"
+            # self.embedding = nn.Embedding(n_classes, num_channels * resolution ** 2)
+            num_channels *= 2
+            self.embeddings = []
+
         def nf(stage):
             return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
 
+        self.conditional = conditional
         self.mbstd_num_features = mbstd_num_features
         self.mbstd_group_size = mbstd_group_size
         self.structure = structure
@@ -328,6 +357,17 @@ class Discriminator(nn.Module):
             # create the fromRGB layers for various inputs:
             from_rgb.append(EqualizedConv2d(num_channels, nf(res - 1), kernel_size=1,
                                             gain=gain, use_wscale=use_wscale))
+            # Create embeddings for various inputs:
+            if conditional:
+                r = 2 ** (res)
+                self.embeddings.append(
+                    Embedding(n_classes, (num_channels // 2) * r * r))
+
+        if self.conditional:
+            self.embeddings.append(nn.Embedding(
+                n_classes, (num_channels // 2) * 4 * 4))
+            self.embeddings = nn.ModuleList(self.embeddings)
+
         self.blocks = nn.ModuleList(blocks)
 
         # Building the final block.
@@ -349,25 +389,54 @@ class Discriminator(nn.Module):
         :param alpha: current value of alpha for fade-in
         :return:
         """
-
+        
         assert depth < self.depth, "Requested output depth cannot be produced"
 
+        if self.conditional:
+            assert labels_in is not None, "Conditional Discriminator requires labels"
+        # print(embedding_in.shape, images_in.shape)
+        # exit(0)
+        # print(self.embeddings)
+        # exit(0)
         if self.structure == 'fixed':
+            if self.conditional:
+                embedding_in = self.embeddings[0](labels_in)
+                embedding_in = embedding_in.view(images_in.shape[0], -1,
+                                                 images_in.shape[2],
+                                                 images_in.shape[3])
+                images_in = torch.cat([images_in, embedding_in], dim=1)
             x = self.from_rgb[0](images_in)
             for i, block in enumerate(self.blocks):
                 x = block(x)
             scores_out = self.final_block(x)
+            
         elif self.structure == 'linear':
             if depth > 0:
-                residual = self.from_rgb[self.depth - depth](self.temporaryDownsampler(images_in))
-                straight = self.blocks[self.depth - depth - 1](self.from_rgb[self.depth - depth - 1](images_in))
+                if self.conditional:
+                    embedding_in = self.embeddings[self.depth -
+                                                   depth - 1](labels_in)
+                    embedding_in = embedding_in.view(images_in.shape[0], -1,
+                                                     images_in.shape[2],
+                                                     images_in.shape[3])
+                    images_in = torch.cat([images_in, embedding_in], dim=1)
+                    
+                residual = self.from_rgb[self.depth -
+                                         depth](self.temporaryDownsampler(images_in))
+                straight = self.blocks[self.depth - depth -
+                                       1](self.from_rgb[self.depth - depth - 1](images_in))
                 x = (alpha * straight) + ((1 - alpha) * residual)
 
                 for block in self.blocks[(self.depth - depth):]:
                     x = block(x)
             else:
+                if self.conditional:
+                    embedding_in = self.embeddings[-1](labels_in)
+                    embedding_in = embedding_in.view(images_in.shape[0], -1,
+                                                     images_in.shape[2],
+                                                     images_in.shape[3])
+                    images_in = torch.cat([images_in, embedding_in], dim=1)
                 x = self.from_rgb[-1](images_in)
-
+                    
             scores_out = self.final_block(x)
         else:
             raise KeyError("Unknown structure: ", self.structure)
@@ -378,8 +447,9 @@ class Discriminator(nn.Module):
 class StyleGAN:
 
     def __init__(self, structure, resolution, num_channels, latent_size,
-                 g_args, d_args, g_opt_args, d_opt_args, loss="relativistic-hinge", drift=0.001,
-                 d_repeats=1, use_ema=False, ema_decay=0.999, device=torch.device("cpu")):
+                 g_args, d_args, g_opt_args, d_opt_args, conditional=False,
+                 n_classes=0, loss="relativistic-hinge", drift=0.001, d_repeats=1,
+                 use_ema=False, ema_decay=0.999, device=torch.device("cpu")):
         """
         Wrapper around the Generator and the Discriminator.
 
@@ -406,11 +476,17 @@ class StyleGAN:
 
         # state of the object
         assert structure in ['fixed', 'linear']
+
+        # Check conditional validity
+        if conditional:
+            assert n_classes > 0, "Conditional GANs require n_classes > 0"
         self.structure = structure
         self.depth = int(np.log2(resolution)) - 1
         self.latent_size = latent_size
         self.device = device
         self.d_repeats = d_repeats
+        self.conditional = conditional
+        self.n_classes = n_classes
 
         self.use_ema = use_ema
         self.ema_decay = ema_decay
@@ -419,10 +495,15 @@ class StyleGAN:
         self.gen = Generator(num_channels=num_channels,
                              resolution=resolution,
                              structure=self.structure,
+                             conditional=self.conditional,
+                             n_classes=self.n_classes,
                              **g_args).to(self.device)
+
         self.dis = Discriminator(num_channels=num_channels,
                                  resolution=resolution,
                                  structure=self.structure,
+                                 conditional=self.conditional,
+                                 n_classes=self.n_classes,
                                  **d_args).to(self.device)
 
         # if code is to be run on GPU, we can use DataParallel:
@@ -454,22 +535,24 @@ class StyleGAN:
     def __setup_loss(self, loss):
         if isinstance(loss, str):
             loss = loss.lower()  # lowercase the string
-
-            if loss == "standard-gan":
-                loss = Losses.StandardGAN(self.dis)
-            elif loss == "hinge":
-                loss = Losses.HingeGAN(self.dis)
-            elif loss == "relativistic-hinge":
-                loss = Losses.RelativisticAverageHingeGAN(self.dis)
-            elif loss == "logistic":
-                loss = Losses.LogisticGAN(self.dis)
+            
+            if not self.conditional:
+                assert loss in ["logistic", "hinge", "standard-gan",
+                                "relativistic-hinge"], "Unknown loss function"
+                if loss == "logistic":
+                    loss_func = Losses.LogisticGAN(self.dis)
+                elif loss == "hinge":
+                    loss_func = Losses.HingeGAN(self.dis)
+                if loss == "standard-gan":
+                    loss_func = Losses.StandardGAN(self.dis)
+                elif loss == "relativistic-hinge":
+                    loss_func = Losses.RelativisticAverageHingeGAN(self.dis)
             else:
-                raise ValueError("Unknown loss function requested")
+                assert loss in ["conditional-loss"]
+                if loss == "conditional-loss":
+                    loss_func = Losses.ConditionalGANLoss(self.dis)
 
-        elif not isinstance(loss, Losses.GANLoss):
-            raise ValueError("loss is neither an instance of GANLoss nor a string")
-
-        return loss
+        return loss_func
 
     def __progressive_down_sampling(self, real_batch, depth, alpha):
         """
@@ -505,7 +588,7 @@ class StyleGAN:
         # return the so computed real_samples
         return real_samples
 
-    def optimize_discriminator(self, noise, real_batch, depth, alpha):
+    def optimize_discriminator(self, noise, real_batch, depth, alpha, labels=None):
         """
         performs one step of weight update on discriminator using the batch of data
 
@@ -515,16 +598,20 @@ class StyleGAN:
         :param alpha: current alpha for fade-in
         :return: current loss (Wasserstein loss)
         """
-
+        
         real_samples = self.__progressive_down_sampling(real_batch, depth, alpha)
 
         loss_val = 0
         for _ in range(self.d_repeats):
             # generate a batch of samples
-            fake_samples = self.gen(noise, depth, alpha).detach()
+            fake_samples = self.gen(noise, depth, alpha, labels).detach()
 
-            loss = self.loss.dis_loss(real_samples, fake_samples, depth, alpha)
-
+            if not self.conditional:
+                loss = self.loss.dis_loss(
+                    real_samples, fake_samples, depth, alpha)
+            else:
+                loss = self.loss.dis_loss(
+                    real_samples, fake_samples, labels, depth, alpha)
             # optimize discriminator
             self.dis_optim.zero_grad()
             loss.backward()
@@ -534,7 +621,7 @@ class StyleGAN:
 
         return loss_val / self.d_repeats
 
-    def optimize_generator(self, noise, real_batch, depth, alpha):
+    def optimize_generator(self, noise, real_batch, depth, alpha, labels=None):
         """
         performs one step of weight update on generator for the given batch_size
 
@@ -548,10 +635,14 @@ class StyleGAN:
         real_samples = self.__progressive_down_sampling(real_batch, depth, alpha)
 
         # generate fake samples:
-        fake_samples = self.gen(noise, depth, alpha)
+        fake_samples = self.gen(noise, depth, alpha, labels)
 
         # Change this implementation for making it compatible for relativisticGAN
-        loss = self.loss.gen_loss(real_samples, fake_samples, depth, alpha)
+        if not self.conditional:
+            loss = self.loss.gen_loss(real_samples, fake_samples, depth, alpha)
+        else:
+            loss = self.loss.gen_loss(
+                real_samples, fake_samples, labels, depth, alpha)
 
         # optimize the generator
         self.gen_optim.zero_grad()
@@ -577,8 +668,8 @@ class StyleGAN:
         :param img_file: name of file to write
         :return: None (saves a file)
         """
-        from torchvision.utils import save_image
         from torch.nn.functional import interpolate
+        from torchvision.utils import save_image
 
         # upsample the image
         if scale_factor > 1:
@@ -589,7 +680,7 @@ class StyleGAN:
                    normalize=True, scale_each=True, pad_value=128, padding=1)
 
     def train(self, dataset, num_workers, epochs, batch_sizes, fade_in_percentage, logger, output,
-              num_samples=36, start_depth=0, feedback_factor=100, checkpoint_factor=1):
+                          num_samples=36, start_depth=0, feedback_factor=100, checkpoint_factor=1):
         """
         Utility method for training the GAN. Note that you don't have to necessarily use this
         you can use the optimize_generator and optimize_discriminator for your own training routine.
@@ -626,7 +717,11 @@ class StyleGAN:
 
         # create fixed_input for debugging
         fixed_input = torch.randn(num_samples, self.latent_size).to(self.device)
-
+        
+        fixed_labels = None
+        if self.conditional:
+            fixed_labels = torch.linspace(
+                0, self.n_classes - 1, num_samples).to(torch.int64).to(self.device)
         # config depend on structure
         logger.info("Starting the training process ... \n")
         if self.structure == 'fixed':
@@ -653,19 +748,27 @@ class StyleGAN:
                 fade_point = int((fade_in_percentage[current_depth] / 100)
                                  * epochs[current_depth] * total_batches)
 
-                for (i, batch) in enumerate(data, 1):
+                for i, batch in enumerate(data, 1):
                     # calculate the alpha for fading in the layers
                     alpha = ticker / fade_point if ticker <= fade_point else 1
 
                     # extract current batch of data for training
-                    images = batch.to(self.device)
+                    if self.conditional:
+                        images, labels = batch
+                        labels = labels.to(self.device)
+                    else:
+                        images = batch
+                        labels = None
+                    
+                    images = images.to(self.device)
+
                     gan_input = torch.randn(images.shape[0], self.latent_size).to(self.device)
 
                     # optimize the discriminator:
-                    dis_loss = self.optimize_discriminator(gan_input, images, current_depth, alpha)
+                    dis_loss = self.optimize_discriminator(gan_input, images, current_depth, alpha, labels)
 
                     # optimize the generator:
-                    gen_loss = self.optimize_generator(gan_input, images, current_depth, alpha)
+                    gen_loss = self.optimize_generator(gan_input, images, current_depth, alpha, labels)
 
                     # provide a loss feedback
                     if i % int(total_batches / feedback_factor + 1) == 0 or i == 1:
@@ -680,10 +783,10 @@ class StyleGAN:
                         gen_img_file = os.path.join(output, 'samples', "gen_" + str(current_depth)
                                                     + "_" + str(epoch) + "_" + str(i) + ".png")
 
-                        with torch.no_grad():
+                        with torch.no_grad():                            
                             self.create_grid(
-                                samples=self.gen(fixed_input, current_depth, alpha).detach() if not self.use_ema
-                                else self.gen_shadow(fixed_input, current_depth, alpha).detach(),
+                                samples=self.gen(fixed_input, current_depth, alpha, labels_in=fixed_labels).detach() if not self.use_ema
+                                else self.gen_shadow(fixed_input, current_depth, alpha, labels_in=fixed_labels).detach(),
                                 scale_factor=int(
                                     np.power(2, self.depth - current_depth - 1)) if self.structure == 'linear' else 1,
                                 img_file=gen_img_file,
@@ -721,7 +824,7 @@ class StyleGAN:
                         logger.info("Saving the model to: %s\n" % gen_shadow_save_file)
 
         logger.info('Training completed.\n')
-
+        
 
 if __name__ == '__main__':
     print('Done.')

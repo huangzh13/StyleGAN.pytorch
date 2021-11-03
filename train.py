@@ -7,16 +7,17 @@
 -------------------------------------------------
 """
 
-import os
 import argparse
+import os
 import shutil
 
 import torch
 from torch.backends import cudnn
 
 from data import make_dataset
-from utils import make_logger, list_dir_recursively_with_ignore, copy_files_and_create_dirs
 from models.GAN import StyleGAN
+from utils import (copy_files_and_create_dirs,
+                   list_dir_recursively_with_ignore, make_logger)
 
 
 # Load fewer layers of pre-trained models if possible
@@ -31,10 +32,10 @@ def load(model, cpk_file):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="StyleGAN pytorch implementation.")
     parser.add_argument('--config', default='./configs/sample.yaml')
-
+    
     parser.add_argument("--start_depth", action="store", type=int, default=0,
                         help="Starting depth for training the network")
-
+    
     parser.add_argument("--generator_file", action="store", type=str, default=None,
                         help="pretrained Generator file (compatible with my code)")
     parser.add_argument("--gen_shadow_file", action="store", type=str, default=None,
@@ -77,10 +78,12 @@ if __name__ == '__main__':
     device = torch.device(opt.device)
 
     # create the dataset for training
-    dataset = make_dataset(opt.dataset)
+    dataset = make_dataset(opt.dataset, conditional=opt.conditional)
 
     # init the network
     style_gan = StyleGAN(structure=opt.structure,
+                         conditional=opt.conditional,
+                         n_classes=opt.n_classes,
                          resolution=opt.dataset.resolution,
                          num_channels=opt.dataset.channels,
                          latent_size=opt.model.gen.latent_size,
@@ -124,13 +127,13 @@ if __name__ == '__main__':
 
     # train the network
     style_gan.train(dataset=dataset,
-                    num_workers=opt.num_works,
-                    epochs=opt.sched.epochs,
-                    batch_sizes=opt.sched.batch_sizes,
-                    fade_in_percentage=opt.sched.fade_in_percentage,
-                    logger=logger,
-                    output=output_dir,
-                    num_samples=opt.num_samples,
-                    start_depth=args.start_depth,
-                    feedback_factor=opt.feedback_factor,
-                    checkpoint_factor=opt.checkpoint_factor)
+                  num_workers=opt.num_works,
+                  epochs=opt.sched.epochs,
+                  batch_sizes=opt.sched.batch_sizes,
+                  fade_in_percentage=opt.sched.fade_in_percentage,
+                  logger=logger,
+                  output=output_dir,
+                  num_samples=opt.num_samples,
+                  start_depth=args.start_depth,
+                  feedback_factor=opt.feedback_factor,
+                  checkpoint_factor=opt.checkpoint_factor)

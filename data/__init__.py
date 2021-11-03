@@ -7,17 +7,24 @@
 -------------------------------------------------
 """
 
+from torchvision.datasets import ImageFolder
+
 from data.datasets import FlatDirectoryImageDataset, FoldersDistributedDataset
 from data.transforms import get_transform
 
 
-def make_dataset(cfg):
-    if cfg.folder:
-        Dataset = FoldersDistributedDataset
+def make_dataset(cfg, conditional=False):
+    
+    if conditional:
+        Dataset = ImageFolder
     else:
-        Dataset = FlatDirectoryImageDataset
-
-    _dataset = Dataset(data_dir=cfg.img_dir, transform=get_transform(new_size=(cfg.resolution, cfg.resolution)))
+        if cfg.folder:
+            Dataset = FoldersDistributedDataset 
+        else:
+            Dataset = FlatDirectoryImageDataset
+    
+    transforms = get_transform(new_size=(cfg.resolution, cfg.resolution))
+    _dataset = Dataset(cfg.img_dir, transform=transforms)
 
     return _dataset
 
