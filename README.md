@@ -1,6 +1,6 @@
 # StyleGAN.pytorch
 
-## \[:star: New :star:\] Please head over to [StyleGAN2.pytorch](https://github.com/huangzh13/StyleGAN2.pytorch) for my stylegan2 pytorch implementation.
+## \[:star: New :star:\] Please head over to [Official PyTorch implementation](https://github.com/NVlabs/stylegan2-ada-pytorch).
 
 <p align="center">
      <img src=diagrams/grid.png width=100% /> <br>
