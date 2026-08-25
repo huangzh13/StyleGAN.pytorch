@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  cpu-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+
+      - name: Create virtual environment
+        run: uv venv
+
+      - name: Install CPU PyTorch
+        run: uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install repository dependencies
+        run: uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run CPU smoke tests
+        run: uv run --no-project python -m pytest -q
