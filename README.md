@@ -183,6 +183,10 @@ not infer from this README that the whole repository is OSI-licensed or that all
 files have the same copyright holder. Preserve the relevant upstream notices when
 redistributing or modifying the code.
 
+See [`NOTICE.md`](NOTICE.md) for a concise third-party notice and
+[`docs/license-provenance.md`](docs/license-provenance.md) for the current
+component-level audit and open questions.
+
 ## Contributing
 
 Small, reviewable maintenance fixes are welcome. Please include reproduction
