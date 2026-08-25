@@ -1,0 +1,4 @@
+# Development/test dependencies for the CPU smoke-test baseline.
+# Runtime training deps are in requirements.txt.
+pytest>=8
+requests
