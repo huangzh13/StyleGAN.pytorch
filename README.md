@@ -173,6 +173,13 @@ not a guarantee that the same outputs can be reproduced in a current environment
 - [akanimax/pro_gan_pytorch](https://github.com/akanimax/pro_gan_pytorch)
 - [lernapparat/lernapparat](https://github.com/lernapparat/lernapparat)
 
+## Maintenance queue
+
+The current open Issue inventory and verification plan are tracked in
+[`docs/issue-triage.md`](docs/issue-triage.md). Reports are classified by
+priority, but remain unverified until a reproduction or supporting evidence is
+recorded.
+
 ## License and provenance
 
 The repository includes [`LICENSE.txt`](LICENSE.txt) and

@@ -110,7 +110,7 @@ the smoke-testable subset.
 | Licensing | Mixed-provenance (see `docs/license-provenance.md`); root `LICENSE.txt` scope unconfirmed |
 | Security | Pickle-based checkpoint loading (`convert.py`, official TF `.pkl`), untrusted-weight guidance exists in README; no sandbox mechanism |
 | Tooling | No `pytest`, no CI, no lint/format pins |
-| Issue backlog | 15 open issues unaudited (see tracker); need classification before closing/replying |
+| Issue backlog | 15 open issues initially classified in [`docs/issue-triage.md`](issue-triage.md); reproduction and maintainer review remain pending |
 
 ---
 
@@ -130,8 +130,8 @@ the smoke-testable subset.
   the test suite; document `EXPERIMENTAL`-free command lines in README.
 - **P1 — Compatibility matrix** (`docs/compatibility.md`): torch 2.x CPU verified,
   GPU/legacy TF column written as "not verified".
-- **P1 — Issue triage** (`docs/issue-triage.md`): classify the 40 open issues;
-  do not close/respond to GitHub until maintainer review.
+- **P1 — Issue triage** (`docs/issue-triage.md`): verify the initial classification
+  of the 15 open issues; do not close/respond to GitHub until maintainer review.
 - **P2 — Security review** of pickle/checkpoint load paths + download scripts.
 - **P2 — Downstream-usage verification** (ECCV 2024 lead) into `docs/downstream-usage.md`.
 - **P3 — Optional**: release process, package metadata, licensing cleanup decision.
