@@ -180,6 +180,11 @@ The current open Issue inventory and verification plan are tracked in
 priority, but remain unverified until a reproduction or supporting evidence is
 recorded.
 
+The current weight-conversion findings are recorded in
+[docs/weight-conversion-research.md](docs/weight-conversion-research.md), and
+the staged maintenance and research roadmap is in
+[docs/iteration-roadmap.md](docs/iteration-roadmap.md).
+
 ## License and provenance
 
 The repository includes [`LICENSE.txt`](LICENSE.txt) and
