@@ -60,6 +60,25 @@ def adjust_dynamic_range(data, drange_in=(-1, 1), drange_out=(0, 1)):
     return torch.clamp(data, min=0, max=1)
 
 
+def load_dlatent(path, num_layers, dlatent_size):
+    """Load one W-space code saved as a NumPy array.
+
+    The synthesis network expects W/dlatent codes with shape
+    ``[batch, num_layers, dlatent_size]``.  The command-line interface accepts
+    the batch-less form ``[num_layers, dlatent_size]`` for one sample.
+    """
+    code = np.load(path)
+    expected_shape = (num_layers, dlatent_size)
+    if code.shape != expected_shape:
+        raise ValueError(
+            "Expected a W/dlatent code with shape {}, got {}".format(
+                expected_shape, code.shape))
+
+    # np.save() commonly stores float64 arrays, while model parameters are
+    # normally float32.  Convert explicitly before entering the network.
+    return torch.from_numpy(code.astype(np.float32, copy=False)).unsqueeze(0)
+
+
 def main(args):
     """
     Main function for the script
@@ -82,6 +101,7 @@ def main(args):
     print("Loading the generator weights from:", args.generator_file)
     # load the weights into it
     gen.load_state_dict(torch.load(args.generator_file))
+    gen.eval()
 
     # path for saving the files:
     save_path = args.output_dir
@@ -105,12 +125,15 @@ def main(args):
 
         print("Generated %d images at %s" % (args.num_samples, save_path))
     else:
-        code = np.load(args.input)
-        dlatent_in = torch.unsqueeze(torch.from_numpy(code), 0)
-        ss_image = gen.g_synthesis(dlatent_in, depth=out_depth, alpha=1)
-        # color adjust the generated image:
-        ss_image = adjust_dynamic_range(ss_image)
-        save_image(ss_image, args.output)
+        with torch.no_grad():
+            dlatent_in = load_dlatent(
+                args.input,
+                num_layers=gen.num_layers,
+                dlatent_size=gen.g_mapping.dlatent_size)
+            ss_image = gen.g_synthesis(dlatent_in, depth=out_depth, alpha=1)
+            # color adjust the generated image:
+            ss_image = adjust_dynamic_range(ss_image)
+            save_image(ss_image, args.output)
 
 
 if __name__ == '__main__':

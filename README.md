@@ -120,6 +120,39 @@ python generate_grid.py \
   --output_dir output/grid
 ```
 
+### Reuse a latent code
+
+The normal generation path samples a latent vector `Z` in memory and passes it
+through the mapping network to produce a per-layer `W` (also called `dlatent`)
+code. `Z` is not saved automatically. To reuse a particular output, save its
+`W` code as a NumPy `.npy` file with shape
+`[num_layers, dlatent_size]` (for example, `[12, 512]` for a 128x128 model):
+
+```python
+# after creating/loading `gen` with the matching config and checkpoint
+import numpy as np
+import torch
+
+with torch.no_grad():
+    z = torch.randn(1, opt.model.gen.latent_size)
+    w = gen.g_mapping(z)                         # [1, num_layers, dlatent_size]
+    np.save("w.npy", w[0].cpu().numpy().astype(np.float32))
+```
+
+Then pass that `W`/`dlatent` code to the single-sample interface:
+
+```shell
+python generate_samples.py \
+  --config configs/sample_ffhq_128.yaml \
+  --generator_file path/to/generator.pth \
+  --input w.npy \
+  --output output/from_w.png
+```
+
+The `--input` path expects a post-mapping `W`/`dlatent` code, not a `Z` vector.
+The script validates the shape and converts the array to `float32` before
+running synthesis.
+
 Style mixing and truncation figures are generated with:
 
 ```shell
