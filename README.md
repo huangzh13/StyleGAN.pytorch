@@ -81,6 +81,36 @@ and generally assume CUDA. Training is expected to require a dataset arranged as
 either a flat directory or a directory of subdirectories, according to the
 configuration's `dataset.folder` value.
 
+### Conditional training
+
+Set `conditional: True` and use a directory accepted by
+`torchvision.datasets.ImageFolder`. Each immediate subdirectory is one class;
+the class names are sorted alphabetically and converted to integer labels:
+
+```text
+data/conditional/
+├── class_a/
+│   ├── image-001.jpg
+│   └── image-002.jpg
+└── class_b/
+    ├── image-001.jpg
+    └── image-002.jpg
+```
+
+Copy [`configs/sample_conditional.yaml`](configs/sample_conditional.yaml),
+then set `dataset.img_dir`, `output_dir`, and `n_classes`. `n_classes` must
+equal the number of class subdirectories. In conditional mode, `dataset.folder`
+is ignored because `ImageFolder` is always used. Start the run with:
+
+```shell
+python train.py --config configs/sample_conditional.yaml
+```
+
+The conditional configuration uses `loss: 'conditional-loss'`; labels are
+loaded from `ImageFolder` and passed to both the generator and discriminator.
+The training entry point checks the class count before starting, so a mislabeled
+directory produces an actionable configuration error.
+
 To resume from checkpoints produced by this repository, provide actual checkpoint
 paths (the examples below use placeholders):
 

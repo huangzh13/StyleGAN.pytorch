@@ -8,7 +8,7 @@ These verify internal consistency only, not NVIDIA numerical equivalence.
 
 import torch
 
-from models.GAN import Discriminator, GMapping, Generator
+from models.GAN import Discriminator, GMapping, Generator, StyleGAN
 
 
 def _full_depth(gen: Generator) -> int:
@@ -60,6 +60,22 @@ class TestGenerator:
         assert img.shape == (1, 3, 16, 16)
         assert torch.isfinite(img).all()
 
+    def test_conditional_forward_uses_labels(self):
+        gen = Generator(resolution=8, latent_size=4, dlatent_size=8,
+                        mapping_layers=2, conditional=True, n_classes=2,
+                        fmap_base=128, truncation_psi=0.0,
+                        style_mixing_prob=0.0).eval()
+        labels = torch.tensor([0, 1], dtype=torch.long)
+        img = gen(torch.randn(2, 4), depth=1, alpha=1.0, labels_in=labels)
+
+        dis = Discriminator(resolution=8, conditional=True, n_classes=2,
+                            fmap_base=128, mbstd_group_size=2).eval()
+        scores = dis(img, depth=1, alpha=1.0, labels_in=labels)
+
+        assert img.shape == (2, 3, 8, 8)
+        assert scores.shape == (2, 1)
+        assert torch.isfinite(scores).all()
+
 
 class TestDiscriminator:
     def test_constructs_and_forward(self):
@@ -68,3 +84,45 @@ class TestDiscriminator:
         out = dis(torch.randn(2, 3, 16, 16), depth, 1.0)
         assert out.shape == (2, 1)
         assert torch.isfinite(out).all()
+
+
+def test_conditional_training_step_passes_dataset_labels():
+    optimizer_args = {
+        "learning_rate": 0.001,
+        "beta_1": 0.0,
+        "beta_2": 0.99,
+        "eps": 1e-8,
+    }
+    gan = StyleGAN(
+        structure="linear",
+        resolution=4,
+        num_channels=3,
+        latent_size=4,
+        g_args={
+            "latent_size": 4,
+            "dlatent_size": 8,
+            "mapping_layers": 2,
+            "fmap_base": 128,
+            "truncation_psi": 0.0,
+            "style_mixing_prob": 0.0,
+        },
+        d_args={"fmap_base": 128, "mbstd_group_size": 2},
+        g_opt_args=optimizer_args,
+        d_opt_args=optimizer_args,
+        conditional=True,
+        n_classes=2,
+        loss="conditional-loss",
+        use_ema=False,
+        device=torch.device("cpu"),
+    )
+    noise = torch.randn(2, 4)
+    real = torch.randn(2, 3, 4, 4)
+    labels = torch.tensor([0, 1], dtype=torch.long)
+
+    dis_loss = gan.optimize_discriminator(noise, real, depth=0, alpha=1.0,
+                                          labels=labels)
+    gen_loss = gan.optimize_generator(noise, real, depth=0, alpha=1.0,
+                                      labels=labels)
+
+    assert torch.isfinite(torch.tensor(dis_loss))
+    assert torch.isfinite(torch.tensor(gen_loss))

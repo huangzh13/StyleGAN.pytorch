@@ -78,7 +78,9 @@ if __name__ == '__main__':
     device = torch.device(opt.device)
 
     # create the dataset for training
-    dataset = make_dataset(opt.dataset, conditional=opt.conditional)
+    dataset = make_dataset(opt.dataset,
+                           conditional=opt.conditional,
+                           n_classes=opt.n_classes if opt.conditional else None)
 
     # init the network
     style_gan = StyleGAN(structure=opt.structure,
