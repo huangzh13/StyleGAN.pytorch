@@ -68,8 +68,11 @@ class TestGenerator:
         labels = torch.tensor([0, 1], dtype=torch.long)
         img = gen(torch.randn(2, 4), depth=1, alpha=1.0, labels_in=labels)
 
+        # The progressive discriminator assumes the low-resolution feature
+        # maps are capped at the same width as the historical default. Keep
+        # this smoke test aligned with that supported configuration.
         dis = Discriminator(resolution=8, conditional=True, n_classes=2,
-                            fmap_base=128, mbstd_group_size=2).eval()
+                            fmap_base=2048, mbstd_group_size=2).eval()
         scores = dis(img, depth=1, alpha=1.0, labels_in=labels)
 
         assert img.shape == (2, 3, 8, 8)

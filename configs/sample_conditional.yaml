@@ -11,7 +11,7 @@ conditional: True
 n_classes: 2
 loss: 'conditional-loss'
 device: 'cuda'
-device_id: '0'
+device_id: ('0')
 dataset:
   img_dir: './data/conditional'
   folder: False
