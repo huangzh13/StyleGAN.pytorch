@@ -116,6 +116,17 @@ class TestNoiseLayer:
         expected = x + 2.0 * noise
         assert torch.allclose(out, expected)
 
+    def test_seeded_noise_is_reused_across_forwards(self):
+        layer = NoiseLayer(channels=3)
+        layer.weight.data.fill_(1.0)
+        layer.set_noise_seed(17)
+        x = torch.ones(2, 3, 4, 4)
+
+        first = layer(x)
+        second = layer(x)
+
+        assert torch.equal(first, second)
+
 
 class TestTruncation:
     def test_forward_applies_lerp_for_first_layers(self):

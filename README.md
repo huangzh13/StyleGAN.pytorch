@@ -183,6 +183,37 @@ The `--input` path expects a post-mapping `W`/`dlatent` code, not a `Z` vector.
 The script validates the shape and converts the array to `float32` before
 running synthesis.
 
+### Deterministic interpolation
+
+Noise is sampled independently at every synthesis layer by default. For an
+interpolation animation, fix the synthesis noise once so that only the latent
+code changes between frames:
+
+```python
+gen.eval()
+gen.set_noise_seed(123)
+
+w_a = gen.g_mapping(z_a)
+w_b = gen.g_mapping(z_b)
+for step in range(30):
+    t = step / 29.0
+    w = torch.lerp(w_a, w_b, t)
+    image = gen.g_synthesis(w, depth=out_depth, alpha=1.0)
+```
+
+The repository also provides a complete PNG-frame and GIF generator. It uses
+linear interpolation in W space and fixed per-layer noise by default:
+
+```shell
+python generate_interpolation.py \
+  --config configs/sample_ffhq_128.yaml \
+  --generator_file path/to/generator.pth \
+  --seed_a 0 --seed_b 1 --steps 30 \
+  --output_dir output/interpolation
+```
+
+Pass `--random_noise` only when changing noise between frames is intentional.
+
 Style mixing and truncation figures are generated with:
 
 ```shell

@@ -187,15 +187,69 @@ class NoiseLayer(nn.Module):
         super().__init__()
         self.weight = nn.Parameter(torch.zeros(channels))
         self.noise = None
+        self.noise_seed = None
+
+    def set_noise(self, noise=None):
+        """Use an explicit noise map for every forward pass.
+
+        The map is normally shaped ``[1, 1, height, width]`` so that it is
+        shared by every sample in a batch.  Keeping the map as a regular
+        attribute preserves the historical checkpoint format: fixed analysis
+        noise is not model state and is not saved in checkpoints.
+        """
+        if noise is not None:
+            if not torch.is_tensor(noise):
+                raise TypeError("noise must be a torch.Tensor or None")
+            if noise.dim() != 4 or noise.size(0) != 1 or noise.size(1) != 1:
+                raise ValueError(
+                    "noise must have shape [1, 1, height, width], got {}".format(
+                        tuple(noise.shape)))
+            noise = noise.detach()
+        self.noise = noise
+        self.noise_seed = None
+        return self
+
+    def set_noise_seed(self, seed=None):
+        """Generate the same noise map on every forward pass.
+
+        ``None`` restores the historical behavior of drawing fresh noise on
+        every forward pass.  The map is created lazily because its spatial
+        size is known only when the synthesis layer receives an input.
+        """
+        self.noise = None
+        self.noise_seed = None if seed is None else int(seed)
+        return self
+
+    def _seeded_noise(self, x):
+        # Generate on CPU so a seed has the same meaning across CPU and CUDA,
+        # then move the small per-pixel map to the activation's device.
+        generator = torch.Generator()
+        generator.manual_seed(self.noise_seed)
+        noise = torch.randn((1, 1, x.size(2), x.size(3)), generator=generator)
+        return noise.to(device=x.device, dtype=x.dtype)
 
     def forward(self, x, noise=None):
         if noise is None and self.noise is None:
-            noise = torch.randn(x.size(0), 1, x.size(2), x.size(3), device=x.device, dtype=x.dtype)
+            if self.noise_seed is None:
+                noise = torch.randn(x.size(0), 1, x.size(2), x.size(3),
+                                    device=x.device, dtype=x.dtype)
+            else:
+                noise = self._seeded_noise(x)
         elif noise is None:
             # here is a little trick: if you get all the noise layers and set each
             # modules .noise attribute, you can have pre-defined noise.
             # Very useful for analysis
             noise = self.noise
+        if noise.device != x.device or noise.dtype != x.dtype:
+            noise = noise.to(device=x.device, dtype=x.dtype)
+        if noise.dim() != 4 or noise.size(1) != 1 or noise.size(2) != x.size(2) or noise.size(3) != x.size(3):
+            raise ValueError(
+                "noise must have shape [batch, 1, {}, {}], got {}".format(
+                    x.size(2), x.size(3), tuple(noise.shape)))
+        if noise.size(0) not in (1, x.size(0)):
+            raise ValueError(
+                "noise batch dimension must be 1 or {}, got {}".format(
+                    x.size(0), noise.size(0)))
         x = x + self.weight.view(1, -1, 1, 1) * noise
         return x
 

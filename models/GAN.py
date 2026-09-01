@@ -31,7 +31,7 @@ from models import update_average
 from models.Blocks import (DiscriminatorBlock, DiscriminatorTop,
                            GSynthesisBlock, InputBlock)
 from models.CustomLayers import (EqualizedConv2d, EqualizedLinear,
-                                 PixelNormLayer, Truncation)
+                                 NoiseLayer, PixelNormLayer, Truncation)
 
 
 class GMapping(nn.Module):
@@ -172,6 +172,37 @@ class GSynthesis(nn.Module):
         # register the temporary upsampler
         self.temporaryUpsampler = lambda x: interpolate(x, scale_factor=2)
 
+    def set_noise_seed(self, seed=None):
+        """Make synthesis deterministic with respect to its dlatent input.
+
+        Each noise injection layer receives a distinct, derived seed while
+        retaining the same noise map on every forward pass.  Passing ``None``
+        restores the historical per-forward random noise behavior.
+        """
+        noise_layers = [module for module in self.modules()
+                        if isinstance(module, NoiseLayer)]
+        for index, noise_layer in enumerate(noise_layers):
+            layer_seed = None if seed is None else int(seed) + index
+            noise_layer.set_noise_seed(layer_seed)
+        return self
+
+    def set_fixed_noise(self, noise_maps):
+        """Set explicit per-layer noise maps for deterministic synthesis.
+
+        ``noise_maps`` must contain one ``[1, 1, H, W]`` tensor per noise
+        layer, in module traversal order.  This is useful when reproducing a
+        particular animation or comparing two synthesis implementations.
+        """
+        noise_layers = [module for module in self.modules()
+                        if isinstance(module, NoiseLayer)]
+        if len(noise_maps) != len(noise_layers):
+            raise ValueError(
+                "Expected {} noise maps, got {}".format(
+                    len(noise_layers), len(noise_maps)))
+        for noise_layer, noise in zip(noise_layers, noise_maps):
+            noise_layer.set_noise(noise)
+        return self
+
     def forward(self, dlatents_in, depth=0, alpha=0., labels_in=None):
         """
             forward pass of the Generator
@@ -251,6 +282,15 @@ class Generator(nn.Module):
                                          beta=dlatent_avg_beta)
         else:
             self.truncation = None
+
+    def set_noise_seed(self, seed=None):
+        """Control synthesis noise for reproducible generation.
+
+        Passing an integer makes repeated calls with the same latent produce
+        the same image.  Passing ``None`` restores random noise per forward.
+        """
+        self.g_synthesis.set_noise_seed(seed)
+        return self
 
     def forward(self, latents_in, depth, alpha, labels_in=None):
         """

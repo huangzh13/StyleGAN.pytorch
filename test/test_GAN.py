@@ -9,6 +9,7 @@ These verify internal consistency only, not NVIDIA numerical equivalence.
 import torch
 
 from models.GAN import Discriminator, GMapping, Generator, StyleGAN
+from models.CustomLayers import NoiseLayer
 
 
 def _full_depth(gen: Generator) -> int:
@@ -59,6 +60,21 @@ class TestGenerator:
         img = gen.g_synthesis(w, depth=depth, alpha=1.0)
         assert img.shape == (1, 3, 16, 16)
         assert torch.isfinite(img).all()
+
+    def test_fixed_noise_makes_synthesis_deterministic(self):
+        gen = Generator(resolution=8, latent_size=4, dlatent_size=6,
+                        fmap_base=128, mapping_layers=2,
+                        truncation_psi=0.0, style_mixing_prob=0.0).eval()
+        for module in gen.g_synthesis.modules():
+            if isinstance(module, NoiseLayer):
+                module.weight.data.fill_(1.0)
+
+        gen.set_noise_seed(23)
+        w = gen.g_mapping(torch.randn(1, 4))
+        first = gen.g_synthesis(w, depth=1, alpha=1.0)
+        second = gen.g_synthesis(w, depth=1, alpha=1.0)
+
+        assert torch.equal(first, second)
 
     def test_conditional_forward_uses_labels(self):
         gen = Generator(resolution=8, latent_size=4, dlatent_size=8,
