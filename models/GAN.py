@@ -34,6 +34,10 @@ from models.CustomLayers import (EqualizedConv2d, EqualizedLinear,
                                  NoiseLayer, PixelNormLayer, Truncation)
 
 
+# Historical gradient-sanitizing behavior used by the generator optimizer.
+GENERATOR_GRADIENT_CLIP_NORM = 10.0
+
+
 class GMapping(nn.Module):
 
     def __init__(self, latent_size=512, dlatent_size=512, dlatent_broadcast=None,
@@ -688,8 +692,9 @@ class StyleGAN:
         # optimize the generator
         self.gen_optim.zero_grad()
         loss.backward()
-        # Gradient Clipping
-        nn.utils.clip_grad_norm_(self.gen.parameters(), max_norm=10.)
+        # Keep an unstable generator step from producing an outsized update.
+        nn.utils.clip_grad_norm_(self.gen.parameters(),
+                                 max_norm=GENERATOR_GRADIENT_CLIP_NORM)
         self.gen_optim.step()
 
         # if use_ema is true, apply ema to the generator parameters

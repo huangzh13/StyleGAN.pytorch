@@ -81,6 +81,10 @@ and generally assume CUDA. Training is expected to require a dataset arranged as
 either a flat directory or a directory of subdirectories, according to the
 configuration's `dataset.folder` value.
 
+The generator training step applies global gradient-norm clipping with a
+maximum norm of `10.0` before the optimizer update. This historical behavior is
+covered by the CPU test suite; the discriminator step is unchanged.
+
 ### Conditional training
 
 Set `conditional: True` and use a directory accepted by

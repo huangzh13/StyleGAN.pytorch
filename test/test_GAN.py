@@ -8,7 +8,8 @@ These verify internal consistency only, not NVIDIA numerical equivalence.
 
 import torch
 
-from models.GAN import Discriminator, GMapping, Generator, StyleGAN
+from models.GAN import (GENERATOR_GRADIENT_CLIP_NORM, Discriminator, GMapping,
+                        Generator, StyleGAN)
 from models.CustomLayers import NoiseLayer
 
 
@@ -145,3 +146,70 @@ def test_conditional_training_step_passes_dataset_labels():
 
     assert torch.isfinite(torch.tensor(dis_loss))
     assert torch.isfinite(torch.tensor(gen_loss))
+
+
+def test_generator_training_step_clips_gradient_norm(monkeypatch):
+    """The generator optimizer step must sanitize an oversized gradient."""
+    optimizer_args = {
+        "learning_rate": 0.001,
+        "beta_1": 0.0,
+        "beta_2": 0.99,
+        "eps": 1e-8,
+    }
+    gan = StyleGAN(
+        structure="linear",
+        resolution=4,
+        num_channels=3,
+        latent_size=4,
+        g_args={
+            "latent_size": 4,
+            "dlatent_size": 8,
+            "mapping_layers": 2,
+            "fmap_base": 128,
+            "truncation_psi": 0.0,
+            "style_mixing_prob": 0.0,
+        },
+        d_args={"fmap_base": 128, "mbstd_group_size": 2},
+        g_opt_args=optimizer_args,
+        d_opt_args=optimizer_args,
+        loss="logistic",
+        use_ema=False,
+        device=torch.device("cpu"),
+    )
+
+    # Force the step to exceed the clipping threshold so this verifies
+    # clipping itself rather than merely the presence of the call.
+    parameter = next(param for param in gan.gen.parameters()
+                     if param.requires_grad)
+    hook = parameter.register_hook(lambda gradient: gradient * 1e6)
+    observed = {}
+    original_clip = torch.nn.utils.clip_grad_norm_
+
+    def recording_clip(parameters, max_norm, *args, **kwargs):
+        parameters = list(parameters)
+        observed["before"] = torch.linalg.vector_norm(torch.stack([
+            param.grad.detach().norm(2).to(torch.float64)
+            for param in parameters if param.grad is not None
+        ])).item()
+        observed["max_norm"] = max_norm
+        original_clip(parameters, max_norm, *args, **kwargs)
+        observed["after"] = torch.linalg.vector_norm(torch.stack([
+            param.grad.detach().norm(2).to(torch.float64)
+            for param in parameters if param.grad is not None
+        ])).item()
+
+    monkeypatch.setattr(torch.nn.utils, "clip_grad_norm_", recording_clip)
+
+    try:
+        gan.optimize_generator(
+            torch.randn(2, 4),
+            torch.randn(2, 3, 4, 4),
+            depth=0,
+            alpha=1.0,
+        )
+    finally:
+        hook.remove()
+
+    assert observed["max_norm"] == GENERATOR_GRADIENT_CLIP_NORM
+    assert observed["before"] > GENERATOR_GRADIENT_CLIP_NORM
+    assert observed["after"] <= GENERATOR_GRADIENT_CLIP_NORM * (1 + 1e-6)
